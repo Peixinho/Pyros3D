@@ -224,6 +224,20 @@ namespace p3d {
 			}
 			BufferOffset = offset;
 
+			// Nothing will draw it (see GeometryBuffer::SetHeadless): the layout is known, and neither the
+			// attributes' own copies nor a laid-out one are kept.
+			if (GeometryBuffer::IsHeadless())
+			{
+				for (std::vector<VertexAttribute*>::iterator k = Attributes.begin(); k != Attributes.end(); k++)
+					std::vector<uchar>().swap((*k)->Data);
+				std::vector<uchar>().swap(Data);
+				packedCount = 0;
+				delete Buffer;
+				Buffer = new GeometryBuffer(bufferType, bufferDraw);
+				Buffer->Init(NULL, BufferOffset * count);
+				return;
+			}
+
 			// Already laid out (SetPacked: by whoever made the mesh, on its own thread)?
 			if (!(packedCount == count && Data.size() == (size_t)BufferOffset * count))
 			{

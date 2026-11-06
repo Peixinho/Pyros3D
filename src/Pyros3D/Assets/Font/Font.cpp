@@ -17,8 +17,39 @@ namespace {
 #include "DefaultFont.inc"
 }
 #include <cstdio>
+#include <map>
+#include <mutex>
 
 namespace p3d {
+
+	namespace {
+		bool g_fontHeadless = false;
+		// Font files by path, while any Font made from them lives.
+		std::shared_ptr<const std::vector<uchar> > FontFileBytes(const std::string &path)
+		{
+			static std::mutex lock;
+			static std::map<std::string, std::weak_ptr<const std::vector<uchar> > > files;
+			std::lock_guard<std::mutex> hold(lock);
+			std::weak_ptr<const std::vector<uchar> > &slot = files[path];
+			if (std::shared_ptr<const std::vector<uchar> > have = slot.lock()) return have;
+			std::shared_ptr<std::vector<uchar> > bytes = std::make_shared<std::vector<uchar> >();
+			if (path == Font::BuiltinDefault())
+				bytes->assign(kDefaultFontData, kDefaultFontData + sizeof(kDefaultFontData));
+			else
+			{
+				File* file = new File();
+				file->Open(path.c_str());
+				if (file->Size() > 0) bytes->assign(&file->GetData()[0], &file->GetData()[0] + file->Size());
+				file->Close();
+				delete file;
+			}
+			slot = bytes;
+			return bytes;
+		}
+	}
+
+	void Font::SetHeadless(const bool on) { g_fontHeadless = on; }
+	bool Font::IsHeadless() { return g_fontHeadless; }
 
 	Font::Font(const std::string& font, const f32 size, bool sdf)
 	{
@@ -39,31 +70,18 @@ namespace p3d {
 		// Font Size
 		fontSize = size;
 
-		// Create Texture
+		// Create Texture (headless: a token one - nothing will sample it, but whatever asks a font for its texture gets one)
+		const uint32 mapSize = g_fontHeadless ? 4 : MAP_SIZE;
 		glyphMap = std::make_shared<Texture>();
-		glyphMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::R8, MAP_SIZE, MAP_SIZE, true);
+		glyphMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::R8, mapSize, mapSize, !g_fontHeadless);
 		glyphMap->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 		glyphMap->SetTextureByteAlignment(1);
 
 		// "builtin:default" (anywhere in the path: a scene's loader may have put its assets folder
 		// in front of it) is the engine's own font - see DefaultFont.inc - so a UI needs no file
 		// to have one. Anything else is a file.
-		if (font.find(BuiltinDefault()) != std::string::npos)
-		{
-			this->font = BuiltinDefault();
-			memory.assign(kDefaultFontData, kDefaultFontData + sizeof(kDefaultFontData));
-		}
-		else
-		{
-			File* file = new File();
-			file->Open(font.c_str());
-
-			memory.resize(file->Size());
-			memcpy(&memory[0], &file->GetData()[0], sizeof(uchar)*file->Size());
-
-			file->Close();
-			delete file;
-		}
+		if (font.find(BuiltinDefault()) != std::string::npos) this->font = BuiltinDefault();
+		memory = FontFileBytes(this->font);
 
 		// Free Type Initialization
 		if (FT_Init_FreeType(&ft)) echo("ERROR: Couldn't Start Freetype Lib");
@@ -99,7 +117,7 @@ namespace p3d {
 				FT_Property_Set(ft, "sdf", "overlaps", &overlapsProp);
 			}
 		}
-		if (FT_New_Memory_Face(ft, &memory[0], memory.size(), 0, &face)) echo("ERROR: Couldn't Load Font");
+		if (FT_New_Memory_Face(ft, memory->data(), (FT_Long)memory->size(), 0, &face)) echo("ERROR: Couldn't Load Font");
 		if (FT_Set_Char_Size(face, 0, (FT_F26Dot6)(fontSize * 64), 300, 300)) echo("ERROR: Couldn't Set Char Size");
 		if (FT_Set_Pixel_Sizes(face, 0, (FT_F26Dot6)fontSize)) echo("ERROR: Couldn't Set Pixel Size");
 
@@ -108,7 +126,7 @@ namespace p3d {
 		// on the stack/heap - and with linear filtering a glyph's edge
 		// texels sample just outside its own rect, so that garbage showed
 		// up as fringing around characters.
-		memset(glyphMapData, 0, sizeof(glyphMapData));
+		if (!g_fontHeadless) glyphMapData.assign((size_t)MAP_SIZE * MAP_SIZE, 0);
 
 		// Font metrics, read once. FreeType keeps these in 26.6 fixed point.
 		FT_Load_Char(face, ' ', FT_LOAD_DEFAULT);
@@ -121,7 +139,7 @@ namespace p3d {
 		if (ascender <= 0.f) ascender = fontSize * 0.8f;
 		if (descender >= 0.f) descender = -fontSize * 0.2f;
 
-		glyphMap->UpdateData(glyphMapData);
+		if (!glyphMapData.empty()) glyphMap->UpdateData(glyphMapData.data());
 
 		lastGlyphWidth = lastGlyphRow = 0;
 	}
@@ -313,6 +331,7 @@ namespace p3d {
 							glp.startingPoint.y = (f32)lastGlyphRow / (MAP_SIZE*MAP_SIZE);
 
 							// Add To Texture
+							if (!glyphMapData.empty())
 							for (uint32 h = 0; h < bitmap.rows; ++h)
 								for (uint32 w = 0; w < bitmap.width; ++w)
 								{
@@ -341,8 +360,8 @@ namespace p3d {
 		// whole atlas even when all of them were cached - and on Vulkan each
 		// upload waits for the GPU. A HUD label updated per frame stalled
 		// the frame once per character.
-		if (atlasChanged)
-			glyphMap->UpdateData(glyphMapData);
+		if (atlasChanged && !glyphMapData.empty())
+			glyphMap->UpdateData(glyphMapData.data());
 	}
 
 	f32 Font::GetFontSize()

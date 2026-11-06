@@ -1172,6 +1172,9 @@ namespace p3d {
 				if (handles->ownedMesh)
 					b3CreateMeshShape(body, &shapeDef, handles->ownedMesh, meshScale);
 			}
+			// The mesh has its own copy (b3CreateMesh clones them): these were only read to make it.
+			std::vector<b3Vec3>().swap(handles->meshVerts);
+			std::vector<int32_t>().swap(handles->meshIndices);
 		}
 		break;
 		case CollisionShapes::HeightFieldTerrain:

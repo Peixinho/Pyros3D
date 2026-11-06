@@ -24,8 +24,13 @@ namespace p3d {
 
 	GeometryBuffer::~GeometryBuffer() {}
 
+	namespace { bool g_geometryHeadless = false; }
+	void GeometryBuffer::SetHeadless(const bool on) { g_geometryHeadless = on; }
+	bool GeometryBuffer::IsHeadless() { return g_geometryHeadless; }
+
 	void GeometryBuffer::Init(const void* GeometryData, const uint32 length)
 	{
+		if (g_geometryHeadless) { std::vector<uchar>().swap(CpuData); DataLength = length; cpuRevision++; return; }
 		const uchar* p = (const uchar*)GeometryData;
 		if (p) CpuData.assign(p, p + length); else CpuData.assign(length, 0);
 		DataLength = length;
@@ -34,6 +39,7 @@ namespace p3d {
 
 	void GeometryBuffer::InitOwned(std::vector<uchar> &&GeometryData)
 	{
+		if (g_geometryHeadless) { DataLength = (uint32)GeometryData.size(); std::vector<uchar>().swap(GeometryData); std::vector<uchar>().swap(CpuData); cpuRevision++; return; }
 		DataLength = (uint32)GeometryData.size();
 		CpuData = std::move(GeometryData);
 		cpuRevision++; NoteWritten(this);
@@ -42,6 +48,7 @@ namespace p3d {
 	void GeometryBuffer::Update(const void* GeometryData, const uint32 length)
 	{
 		const uint32 n = length ? length : DataLength;
+		if (g_geometryHeadless) { DataLength = n; cpuRevision++; return; }
 		if (CpuData.size() != n) CpuData.resize(n);
 		if (GeometryData && n) memcpy(CpuData.data(), GeometryData, n);
 		DataLength = n;

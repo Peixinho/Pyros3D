@@ -73,6 +73,8 @@
 #include <Pyros3D/Utils/CrashHandler/CrashHandler.h>
 #include <Pyros3D/Core/Logs/Log.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
+#include <Pyros3D/Assets/Font/Font.h>
+#include <Pyros3D/Core/Buffers/GeometryBuffer.h>
 #ifdef LUA_BINDINGS
 #include <Pyros3D/Ext/sol/sol.hpp>
 #include <Pyros3D/Utils/Bindings/PyrosBindings.h>
@@ -130,6 +132,8 @@ int main(int argc, char** argv)
 	// minutes encoding hundreds of maps into a cache before it opened its port)
 	p3d::Texture::SetCompression(false);
 	p3d::Texture::SetPixelsWanted(false);     // (nor read at all: decoded, an island's maps took a small machine past its memory)
+	p3d::Font::SetHeadless(true);             // fonts measure text, but bake no glyph atlas (2 MB a font and size)
+	p3d::GeometryBuffer::SetHeadless(true);   // meshes keep what physics and scripts read, not the copies laid out for a GPU
 
 	// --rendezvous-service [port]: no game - only the meeting point.
 	for (int i = 1; i < argc; i++)
@@ -385,6 +389,7 @@ int main(int argc, char** argv)
 		fprintf(stderr, "PyrosServer: could not load %s\n", sceneAbs.c_str());
 		return 1;
 	}
+	std::string().swap(text);	// (the scene as text, prefabs expanded: megabytes nothing reads again)
 
 	NetworkSession* session = new NetworkSession(scene, sceneAbs, physics, luaPtr);
 #ifdef LUA_BINDINGS

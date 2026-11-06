@@ -56,8 +56,8 @@ namespace p3d {
 		// Font Map
 		std::shared_ptr<Texture> glyphMap;
 
-		// Glyph Map Data
-		uchar glyphMapData[MAP_SIZE*MAP_SIZE];
+		// Glyph Map Data (MAP_SIZE x MAP_SIZE; empty when headless - see SetHeadless)
+		std::vector<uchar> glyphMapData;
 
 		// Font Glyphs Properties
 		std::map<char, glyph_properties> glyphs;
@@ -71,8 +71,8 @@ namespace p3d {
 		FT_Library ft;
 		FT_Face face;
 
-		// From Memory
-		std::vector<uchar> memory;
+		// The font file, shared by every Font made from the same one (FreeType reads it for as long as the face lives)
+		std::shared_ptr<const std::vector<uchar> > memory;
 
 		// See GetSpaceAdvance()/GetLineHeight()/GetAscender().
 		bool isSDF;
@@ -97,6 +97,11 @@ namespace p3d {
 		// The path that names the engine's built-in font (Barlow SemiBold, embedded): a UIText or
 		// a Font given it needs no font file - the default loading screen's text is set in it.
 		static const char* BuiltinDefault() { return "builtin:default"; }
+		// A process that draws nothing (a dedicated server): fonts still measure text - every glyph's
+		// size and advance - but bake no glyph atlas and make no texture for one. A game's UI loaded
+		// on a server held a megabyte of atlas and another of texture for every font and size.
+		static void SetHeadless(const bool on);
+		static bool IsHeadless();
 		bool IsSDF() const { return isSDF; }
 		// Pixels the field extends beyond the glyph's ink on every side.
 		f32 GetSDFSpread() const { return (f32)sdfSpread; }

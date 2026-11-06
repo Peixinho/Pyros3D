@@ -233,6 +233,10 @@ namespace p3d {
 				+ " names:" + names + ")");
 			return;
 		}
+		// The attributes keep no copy of their own (a mesh laid out on a loader thread, or nothing
+		// drawing at all - GeometryBuffer::SetHeadless): nothing to project onto.
+		if (rc->Geometry->Attributes[bPosition]->Attributes[aPosition]->Data.empty() || rc->Geometry->Attributes[bNormal]->Attributes[aNormal]->Data.empty())
+			return;
 		// Same for the skinned path: haveBones is set by finding EITHER of the
 		// two bone attributes, so finding only one left the other at -1.
 		if (haveBones && (bBonesID < 0 || aBonesID < 0 || bBonesWeight < 0 || aBonesWeight < 0))
@@ -240,6 +244,8 @@ namespace p3d {
 			echo("WARNING: DecalGeometry - target mesh has only half its bone attributes; decal built unskinned");
 			haveBones = false;
 		}
+		if (haveBones && (rc->Geometry->Attributes[bBonesID]->Attributes[aBonesID]->Data.empty() || rc->Geometry->Attributes[bBonesWeight]->Attributes[aBonesWeight]->Data.empty()))
+			haveBones = false;
 
 		for (uint32 i = 0; i < rc->Geometry->GetIndexData().size(); i += 3)
 		{

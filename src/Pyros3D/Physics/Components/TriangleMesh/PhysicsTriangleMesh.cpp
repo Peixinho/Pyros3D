@@ -31,16 +31,34 @@ namespace p3d {
 
 	void PhysicsTriangleMesh::Gather(RenderingComponent* rcomp)
 	{
-		unsigned indexCount = 0;
+		// The model's own vertices, each once, and its triangles as indices into them. (This used to
+		// write out three vertices for every triangle: a city's colliders held their geometry
+		// several times over, 45 MB of a dedicated server's memory that nothing read again.)
+		size_t vertexTotal = 0, indexTotal = index.size();
+		for (unsigned k = 0; k < rcomp->GetMeshes().size(); k++)
+		{
+			RenderingMesh* rc = (RenderingMesh*)rcomp->GetMeshes()[k];
+			vertexTotal += rc->Geometry->GetVertexData().size();
+			const size_t n = rc->Geometry->GetIndexData().size();
+			indexTotal += (rc->Material && rc->Material->GetCullFace() == CullFace::DoubleSided) ? n * 2 : n;
+		}
+		vertex.reserve(vertex.size() + vertexTotal);
+		index.reserve(indexTotal);
 		for (unsigned k = 0; k < rcomp->GetMeshes().size(); k++)
 		{
 			RenderingMesh* rc = (RenderingMesh*)rcomp->GetMeshes()[k];
 			const std::vector<uint32> &meshIndex = rc->Geometry->GetIndexData();
 			const std::vector<Vec3> &meshVertex = rc->Geometry->GetVertexData();
-			for (unsigned i = 0; i < meshIndex.size(); i++)
+			const unsigned base = (unsigned)vertex.size();
+			vertex.insert(vertex.end(), meshVertex.begin(), meshVertex.end());
+			const size_t vn = meshVertex.size();
+			for (size_t i = 0; i + 2 < meshIndex.size(); i += 3)
 			{
-				index.push_back(indexCount++);
-				vertex.push_back(meshVertex[meshIndex[i]]);
+				// (an index past the mesh's vertices would have the physics engine read past them)
+				if (meshIndex[i] >= vn || meshIndex[i + 1] >= vn || meshIndex[i + 2] >= vn) continue;
+				index.push_back(base + meshIndex[i]);
+				index.push_back(base + meshIndex[i + 1]);
+				index.push_back(base + meshIndex[i + 2]);
 			}
 			// A triangle only stops what comes at its front. A surface that
 			// is drawn from both sides is solid from both: the same
@@ -51,9 +69,10 @@ namespace p3d {
 			{
 				for (size_t i = 0; i + 2 < meshIndex.size(); i += 3)
 				{
-					index.push_back(indexCount++); vertex.push_back(meshVertex[meshIndex[i]]);
-					index.push_back(indexCount++); vertex.push_back(meshVertex[meshIndex[i + 2]]);
-					index.push_back(indexCount++); vertex.push_back(meshVertex[meshIndex[i + 1]]);
+					if (meshIndex[i] >= vn || meshIndex[i + 1] >= vn || meshIndex[i + 2] >= vn) continue;
+					index.push_back(base + meshIndex[i]);
+					index.push_back(base + meshIndex[i + 2]);
+					index.push_back(base + meshIndex[i + 1]);
 				}
 			}
 		}

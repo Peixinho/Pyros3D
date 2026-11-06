@@ -111,6 +111,13 @@ namespace p3d {
 		static std::atomic<GeometryBuffer*> s_written[kWrittenRing];
 		static void NoteWritten(GeometryBuffer* b) { const uint64 i = s_anyWritten.fetch_add(1, std::memory_order_relaxed); s_written[i % kWrittenRing].store(b, std::memory_order_release); }
 
+		// A process that draws nothing (a dedicated server): buffers know their length but keep none of
+		// their bytes, which are only ever read by a renderer to make its GPU copy. A server's meshes
+		// otherwise sat in memory twice more than the copy physics and scripts read (ModelGeometry's
+		// arrays): once per attribute and once laid out for the GPU. Map() then gives NULL.
+		static void SetHeadless(const bool on);
+		static bool IsHeadless();
+
 		GeometryBuffer();
 		GeometryBuffer(const uint32 bufferType, const uint32 bufferDraw);
 		~GeometryBuffer();
