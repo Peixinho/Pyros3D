@@ -646,6 +646,16 @@ vec2 ParallaxUV(vec3 n, vec3 p, vec2 uv, vec3 toEye, float depth)
 }
 #endif
 
+// The sky's radiance toward a point - just above the horizon where the point is below it, as the air in front of the
+// ground is lit like the low sky: what the air between takes on (AerialPerspective, the haze layer)
+vec3 SkyTowardPoint(vec3 p)
+{
+	vec3 toPoint = normalize(p - uFrame.cameraPosition.xyz);
+	vec3 skyDir = normalize(vec3(toPoint.x, max(toPoint.y, 0.02), toPoint.z));
+	vec2 suv = SkyViewUV(skyDir, normalize(uFrame.skySun.xyz));
+	return textureLod(sampler2D(uSkyView, uLinearClamp), vec2(suv.x, 1.0 - suv.y), 0.0).rgb;
+}
+
 void main()
 {
 	// (cut by the screen's lens - a gun at a scope looked through: not drawn within its glass - subsurface.w -1)
@@ -795,8 +805,17 @@ void main()
 			c2 = s.albedo * (uFrame.ambient.rgb + light / PI);
 		}
 		c2 += s.emission;
+		// (in the haze as every other surface - an unlit sign, a glowing lamp far off: kept clear of it, they stood out of the
+		// veiled distance round them. An added glow only dimmed by it; a multiplied one gone toward white)
+		float keep = 1.0;
+		if (uFrame.haze.x > 0.0 && uFrame.frame.w == 0.0)
+		{
+			keep = exp(-HazeDepth(uFrame.cameraPosition.xyz, vWorldPosition));
+			if (uDraw.skin.w < 0.5) c2 = c2 * keep + SkyTowardPoint(vWorldPosition) * (1.0 - keep);
+			else if (uDraw.skin.w < 1.5) c2 *= keep;
+		}
 		// (skin.w 2: multiplied - what is under it times this, by its cover: white where it is not)
-		if (uDraw.skin.w > 1.5) { outColor = vec4(mix(vec3(1.0), c2, s.alpha), 1.0); return; }
+		if (uDraw.skin.w > 1.5) { outColor = vec4(mix(vec3(1.0), c2, s.alpha * keep), 1.0); return; }
 		outColor = vec4(uDraw.skin.w > 0.5 ? c2 * s.alpha : c2, s.alpha);
 		return;
 	}
@@ -907,13 +926,13 @@ void main()
 	}
 	// The air between (with the sky): the sky's radiance toward the point - just above the horizon where the point is
 	// below it, as the air in front of the ground is lit like the low sky
-	if (uFrame.sky.w > 0.0 && uFrame.frame.w == 0.0)
+	if ((uFrame.sky.w > 0.0 || uFrame.haze.x > 0.0) && uFrame.frame.w == 0.0)
 	{
-		vec3 toPoint = normalize(vWorldPosition - uFrame.cameraPosition.xyz);
-		vec3 skyDir = normalize(vec3(toPoint.x, max(toPoint.y, 0.02), toPoint.z));
-		vec2 suv = SkyViewUV(skyDir, normalize(uFrame.skySun.xyz));
-		vec3 skyL = textureLod(sampler2D(uSkyView, uLinearClamp), vec2(suv.x, 1.0 - suv.y), 0.0).rgb;
-		color = AerialPerspective(color, uFrame.cameraPosition.xyz, uFrame.sky.x, vWorldPosition, skyL, uFrame.sky.w) ;
+		vec3 skyL = SkyTowardPoint(vWorldPosition);
+		if (uFrame.sky.w > 0.0) color = AerialPerspective(color, uFrame.cameraPosition.xyz, uFrame.sky.x, vWorldPosition, skyL, uFrame.sky.w) ;
+		// (and the haze layer, after the air: what is far takes the low sky's colour, as the sky meets the land there)
+		float hazeKept = exp(-HazeDepth(uFrame.cameraPosition.xyz, vWorldPosition));
+		color = color * hazeKept + skyL * (1.0 - hazeKept);
 		// (a see-through surface's alpha lets the air behind it through too: its share kept as it was)
 	}
 	if (uFrame.frame.w == 3.0) color = vec3(ao);

@@ -133,6 +133,17 @@ namespace p3d {
 			}
 			if (param == "uCloudCover") { RenderGlobals::CloudCover() = std::min(std::max(v, 0.f), 1.f); return true; }
 			if (param == "uHaze") { RenderGlobals::Haze() = std::max(v, 0.f) / 0.0012f; return true; }
+			// (the haze layer: thickness per km at its base, then - each optional - where it begins (m), the height it thins
+			// to a third over (m), its base (world y). 0 thickness: none)
+			if (param == "uHazeLayer")
+			{
+				Vec4 &h = RenderGlobals::HazeLayer();
+				h.x = std::max(v, 0.f) * 0.001f;
+				if (va.size() >= 2 && va[1].is<f32>()) h.y = std::max(va[1].get<f32>(), 0.f);
+				if (va.size() >= 3 && va[2].is<f32>()) h.z = std::max(va[2].get<f32>(), 1.f);
+				if (va.size() >= 4 && va[3].is<f32>()) h.w = va[3].get<f32>();
+				return true;
+			}
 			if (param == "uRain") { RenderGlobals::Rain() = std::min(std::max(v, 0.f), 1.f); return true; }
 			return false;
 		});

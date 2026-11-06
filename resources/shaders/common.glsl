@@ -32,7 +32,27 @@ layout(set = 1, binding = 0, std140) uniform FrameData
 	vec4 skySun;             // xyz: toward the sun, for the sky (the air, its clouds, its light) - the light's own unless a game said where the sun is (below the horizon at night, the light then the moon)
 	vec4 skySunTop;          // rgb: the sky sun's illuminance above the air, where a game gave it (w 1); w 0 - the light's own (sunRadiance over the air toward it)
 	vec4 lens;               // the screen's lens: xy its centre (0..1, y down), z its radius - a share of the height (0: none) - what is cut by it is not drawn within
+	vec4 haze;               // the haze layer (RenderGlobals::HazeLayer): x its thickness per metre at its base (0: none), y where it begins (m from
+	                         // the eye), z the height over which it thins to a third (m), w its base (world y) - HazeDepth
 } uFrame;
+// The haze layer between the eye and p: how much of the light from p it takes on the way (an optical depth - the light
+// kept is exp(-that)). Aerosol haze, grey, not the air's blue; none nearer than where it begins (a room, the street, what
+// is close is never veiled); thinning with height as exp(-h / H) over its base, so looking down from high up crosses only
+// its thin top and its thick bottom along a short way, and looking out level crosses all of it.
+float HazeDepth(vec3 eye, vec3 p)
+{
+	if (uFrame.haze.x <= 0.0) return 0.0;
+	vec3 d = p - eye;
+	float len = length(d);
+	float from = uFrame.haze.y;
+	if (len <= from) return 0.0;
+	vec3 a = eye + d * (from / len);
+	float H = max(uFrame.haze.z, 1.0);
+	float ha = max(a.y - uFrame.haze.w, 0.0), hb = max(p.y - uFrame.haze.w, 0.0);
+	float dh = hb - ha;
+	float rho = abs(dh) > 0.01 ? H * (exp(-ha / H) - exp(-hb / H)) / dh : exp(-ha / H);
+	return uFrame.haze.x * (len - from) * rho;
+}
 // (within the screen's lens: a fragment of what is cut by it - a gun at a scope - is not drawn there)
 bool InScreenLens(vec2 fragCoord)
 {

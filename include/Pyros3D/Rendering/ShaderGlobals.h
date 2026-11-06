@@ -33,6 +33,11 @@ namespace p3d {
 		// what faces up wet and puddled in proportion, everywhere
 		PYROS3D_API f32 &CloudCover();
 		PYROS3D_API f32 &Haze();
+		// The haze layer (setPostEffectParam("Sky", "uHazeLayer", thickness, start, height, base)): grey aerosol haze over
+		// the land, apart from the air's own (Haze): x how much it takes per metre at its base (0: none - the default),
+		// y where it begins (metres from the eye: nothing nearer is veiled), z the height over which it thins to a third
+		// (m), w its base (world y). Common.glsl's HazeDepth; every surface, particle and smoke column is in it.
+		PYROS3D_API Vec4 &HazeLayer();
 		PYROS3D_API f32 &Rain();
 		// A still water's mirror (setSkyMirrorLevel): the height of the plane the scene is reflected in - a sea, a lake -
 		// drawn as a screen-space planar reflection on what lies at that height facing up; NaN: none

@@ -60,5 +60,12 @@ void main()
 		vec3 sun = uFrame.sunDirection.w > 0.0 ? uFrame.sunRadiance.rgb / PI * phase * 0.5 : vec3(0.0);
 		rgb *= ambient + sun;
 	}
+	// (in the haze layer, as the scene behind it is: a far burst grey with the distance; a glow only dimmed by it)
+	if (uFrame.haze.x > 0.0)
+	{
+		float keep = exp(-HazeDepth(uFrame.cameraPosition.xyz, vWorldPosition));
+		vec3 hazeLight = texelFetch(sampler2D(uSkySH, uLinear), ivec2(0, 0), 0).rgb * 0.282095 * 1.2;
+		rgb = uDraw.light.z > 0.5 ? rgb * keep : rgb * keep + hazeLight * (1.0 - keep);
+	}
 	outColor = uDraw.light.z > 0.5 ? vec4(rgb * color.a, 0.0) : vec4(rgb * color.a, color.a);
 }

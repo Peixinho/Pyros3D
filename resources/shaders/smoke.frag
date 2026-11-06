@@ -101,6 +101,7 @@ vec4 Sample(int v, vec3 p, vec3 jitter)
 // Shared by both rays
 float gJitter;
 vec3 gAmbTop, gAmbBottom;
+float gNear;     // (where the last March first met smoke: the haze layer in front of it)
 
 // The smoke and fire along a ray from ro (rd its direction) up to tEnd: the light it gathers toward ro, and what of
 // what lies behind still shows. maxSteps: what the ray may spend.
@@ -125,6 +126,7 @@ vec4 March(vec3 ro, vec3 rd, float tEnd, int maxSteps)
 		tNear = min(tNear, t0); tFar = max(tFar, t1);
 	}
 	if (tFar < 0.0) return vec4(0.0, 0.0, 0.0, 1.0);
+	gNear = tNear;
 
 	vec3 L = uSunDir.xyz;
 	float cosSun = dot(rd, L);
@@ -253,7 +255,15 @@ void main()
 		gAmbBottom = (SkyIrradiance(vec3(0.0, -1.0, 0.0)) + uSunColor.rgb * max(uSunDir.y, 0.0) * 0.25) / 3.14159;
 	}
 
+	gNear = 0.0;
 	outColor = March(ro, rd, tScene, int(uP1.w));
+	// (the haze layer in front of the smoke: the scene behind it was veiled to its own distance, so what the smoke hides of
+	// it takes the haze between the eye and the smoke back in - a far column grey with the distance, as the hills are)
+	if (uFrame.haze.x > 0.0 && outColor.a < 0.999)
+	{
+		float keep = exp(-HazeDepth(ro, ro + rd * gNear));
+		outColor.rgb = outColor.rgb * keep + gAmbTop * (1.0 - keep) * (1.0 - outColor.a);
+	}
 
 	// The reflection: where the surface here mirrors (its alpha), the ray goes on from it, mirrored about its normal
 	// (from the depth round it), through what smoke lies that way - half the steps; what of it shows is weighed by

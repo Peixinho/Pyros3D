@@ -698,6 +698,7 @@ namespace p3d {
 			f32 skySun[4];                      // (toward the sun, for the sky: RenderGlobals::SkySun, else the light's)
 			f32 skySunTop[4];                   // (the sky sun's illuminance above the air, w 1: RenderGlobals::SkySunLight; w 0 - the light's)
 			f32 lens[4];                        // (the screen's lens on this view: centre xy 0..1, z radius - a share of the height, 0 none)
+			f32 haze[4];                        // (the haze layer - RenderGlobals::HazeLayer, x per metre; 0 without a sky, whose colour it takes)
 		};
 		// std140, as surface_draw.glsl's DrawData
 		struct DrawData
@@ -6125,6 +6126,10 @@ namespace p3d {
 			drawPreviousSeconds = drawSeconds > 0.f ? drawSeconds : fd.sky[2]; drawSeconds = fd.sky[2];
 		}
 		fd.sky[3] = skyLit ? hazeDensity : 0.f;
+		{
+			const Vec4 &hl = RenderGlobals::HazeLayer();
+			fd.haze[0] = skyLit ? hl.x : 0.f; fd.haze[1] = hl.y; fd.haze[2] = hl.z; fd.haze[3] = hl.w;
+		}
 		fd.weather[0] = RenderGlobals::Rain();
 		fd.weather[2] = view.transparent ? 1.f : 0.f;
 		fd.weather[1] = RtShadows() && aoRT ? 1.f : 0.f;     // (the sun's shadow from the rays: uAO's green)
