@@ -313,6 +313,12 @@ namespace p3d { namespace gfx {
 			RayGeometry CreateRayGeometry(const float* positions, uint32_t vertexCount, uint32_t strideFloats, const uint32_t* indices, uint32_t indexCount) override;
 			void Destroy(RayGeometry g) override;
 			void SetRayScene(const RayInstance* instances, uint32_t count) override;
+			// (what SetRayScene was given - by the thread preparing a frame, maybe while the render thread records the one before -
+			// and the scene built from it on the recording thread, in the slot of the frame being recorded, when a pipeline that
+			// traces binds it: built from the preparing thread, it reset the slot's command buffer and rewrote its instances
+			// while the GPU still had them - a scene loaded again, a device lost)
+			std::mutex rtPendingMutex; std::vector<RayInstance> rtPending;
+			void BuildRayScene();     // (recordMutex held)
 			// (freed once the frames recorded with it are done, as a buffer is: MoltenVK encodes a list when it is submitted -
 			// at the frame's end, after a group let go mid-frame - and the GPU may still be reading it)
 			void Destroy(BindGroup g) override
@@ -549,7 +555,12 @@ namespace p3d { namespace gfx {
 			// (the frame's scene, where it traces it - one built this frame, else an empty one: never an unwritten set)
 			if (current->rayScene)
 			{
-				if (dev->rtBuiltOn[dev->frame] != dev->frameNumber || !dev->rtScenes[dev->frame]) dev->SetRayScene(nullptr, 0);
+				if (dev->rtBuiltOn[dev->frame] != dev->frameNumber || !dev->rtScenes[dev->frame])
+				{
+					if (!dev->rayNothing) { const float p[9] = { 0.f, -1e7f, 0.f, 1.f, -1e7f, 0.f, 0.f, -1e7f, 1.f }; const uint32_t ix[3] = { 0, 1, 2 }; dev->rayNothing = dev->CreateRayGeometry(p, 3, 3, ix, 3); }
+					std::lock_guard<std::mutex> lk(dev->recordMutex);
+					if (dev->rtBuiltOn[dev->frame] != dev->frameNumber || !dev->rtScenes[dev->frame]) dev->BuildRayScene();
+				}
 				if (dev->rtScenes[dev->frame])
 					vkCmdBindDescriptorSets(cmd, current->compute ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS, current->layout, 2, 1, &dev->rtSets[dev->frame], 0, nullptr);
 			}
@@ -1445,13 +1456,17 @@ namespace p3d { namespace gfx {
 		void VulkanDevice::SetRayScene(const RayInstance* instances, uint32_t count)
 		{
 			if (!caps.rayQuery) return;
-			if (!rayNothing)
-			{
-				// (one triangle far below everything: a scene always exists, and an instance whose geometry is gone keeps its
-				// place - the shaders find an instance's own data by its index)
-				const float p[9] = { 0.f, -1e7f, 0.f, 1.f, -1e7f, 0.f, 0.f, -1e7f, 1.f }; const uint32_t ix[3] = { 0, 1, 2 };
-				rayNothing = CreateRayGeometry(p, 3, 3, ix, 3);
-			}
+			std::lock_guard<std::mutex> l(rtPendingMutex);
+			rtPending.assign(instances, instances + count);
+		}
+
+		void VulkanDevice::BuildRayScene()
+		{
+			// (one triangle far below everything - rayNothing, made by the binder: a scene always exists, and an instance whose
+			// geometry is gone keeps its place - the shaders find an instance's own data by its index)
+			std::vector<RayInstance> pending;
+			{ std::lock_guard<std::mutex> l(rtPendingMutex); pending = rtPending; }
+			const RayInstance* instances = pending.data(); const uint32_t count = (uint32_t)pending.size();
 			std::vector<VkAccelerationStructureInstanceKHR> inst;
 			inst.reserve(std::max(count, 1u));
 			auto add = [&](RayGeometry geometry, const float* t)
