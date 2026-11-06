@@ -35,9 +35,22 @@ namespace p3d {
 
 	Texture::~Texture() {}
 
+	namespace { std::atomic<bool> g_pixelsWanted(true); }
+	void Texture::SetPixelsWanted(const bool on) { g_pixelsWanted.store(on); }
+	bool Texture::GetPixelsWanted() { return g_pixelsWanted.load(); }
+
 	bool Texture::LoadTexture(const std::string& Filename, const uint32 Type, bool Mipmapping, const uint32 level)
 	{
 		this->Type = Type;
+		if (!g_pixelsWanted.load())
+		{
+			const uchar white[4 * 4 * 4] = { 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+				255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255 };
+			CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, 4, 4, false);
+			UpdateData((void*)white);
+			this->Filename = Filename;
+			return true;
+		}
 
 		// A Radiance .hdr (an HDR sky, a light probe): linear float RGB, kept as floats. The mips are
 		// skipped, as a sky or a probe is looked up, not minified across a surface.

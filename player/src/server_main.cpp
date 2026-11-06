@@ -72,6 +72,7 @@
 #include <Pyros3D/Utils/Json/json.hpp>
 #include <Pyros3D/Utils/CrashHandler/CrashHandler.h>
 #include <Pyros3D/Core/Logs/Log.h>
+#include <Pyros3D/Assets/Texture/Texture.h>
 #ifdef LUA_BINDINGS
 #include <Pyros3D/Ext/sol/sol.hpp>
 #include <Pyros3D/Utils/Bindings/PyrosBindings.h>
@@ -125,6 +126,10 @@ int main(int argc, char** argv)
 	std::signal(SIGTERM, OnSignal);
 	// A server's log is its console; show what a player's would hide.
 	LOG::_LOG::SetLevel(LOG::Level::Info);
+	// It draws nothing: its textures are not compressed into blocks for a GPU it has not got (every new version spent
+	// minutes encoding hundreds of maps into a cache before it opened its port)
+	p3d::Texture::SetCompression(false);
+	p3d::Texture::SetPixelsWanted(false);     // (nor read at all: decoded, an island's maps took a small machine past its memory)
 
 	// --rendezvous-service [port]: no game - only the meeting point.
 	for (int i = 1; i < argc; i++)

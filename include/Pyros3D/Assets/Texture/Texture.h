@@ -230,6 +230,11 @@ namespace p3d {
 		static bool ReadCompressedCache(const std::string& Filename, uint32 &format, std::vector<std::vector<uchar> > &levels);
 		bool wantsBlocks = false;     // (loaded as a material's map: CompressedLoads)
 		static void SetCompression(const bool on);
+		// Whether pictures are read at all (on unless turned off): a dedicated server draws nothing, and decoding every map of
+		// an island in memory took it past a small machine's - a load of seconds took minutes. Off, a texture loaded is a 4x4
+		// white one with the file's name (terrain heights are read by Heightfield, not here)
+		static void SetPixelsWanted(const bool on);
+		static bool GetPixelsWanted();
 		static bool GetCompression();
 		static bool DecodeMemory(const uchar* data, const size_t length, DecodedImage& out);
 		bool LoadTextureFromMemory(std::vector<uchar> data, const uint32 length, const uint32 Type = TextureType::Texture, bool Mipmapping = true, const uint32 level = 0);
