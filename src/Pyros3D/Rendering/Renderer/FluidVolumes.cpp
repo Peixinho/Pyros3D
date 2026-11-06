@@ -458,12 +458,17 @@ namespace p3d {
 		const int cx = std::min(std::max((int)((c.position.x - s.origin.x) / s.cell), 0), (int)s.nx - 1);
 		const int cz = std::min(std::max((int)((c.position.z - s.origin.z) / s.cell), 0), (int)s.nz - 1);
 		int start = -1; f32 best = 1e9f;
+		// (and in sight of where it broke: the column under a bottle broken against a wall can be the wall's, or the floor
+		// behind it - the spill then began on the far side)
 		for (int dz = -4; dz <= 4; dz++) for (int dx = -4; dx <= 4; dx++)
 		{
 			const int x = cx + dx, z = cz + dz;
 			if (x < 0 || z < 0 || x >= (int)s.nx || z >= (int)s.nz || ground[(size_t)x + s.nx * z] <= none) continue;
 			const f32 d = (f32)(dx * dx + dz * dz);
-			if (d < best) { best = d; start = x + (int)s.nx * z; }
+			if (d >= best) continue;
+			const Vec3 there(s.origin.x + (x + 0.5f) * s.cell, ground[(size_t)x + s.nx * z] + 0.08f, s.origin.z + (z + 0.5f) * s.cell);
+			if (c.physics->RayCast(c.position, there).hasHit || c.physics->RayCast(there, c.position).hasHit) continue;
+			best = d; start = x + (int)s.nx * z;
 		}
 		if (start < 0) return;
 		const f32 R = std::max(c.radius, 0.3f);
