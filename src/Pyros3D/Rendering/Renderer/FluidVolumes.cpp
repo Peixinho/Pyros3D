@@ -411,6 +411,26 @@ namespace p3d {
 		}
 	}
 
+	namespace
+	{
+		// (a smooth noise over the ground, 0..1 - two octaves of value noise, a metre and a third of one - for SpillFuel's lobes)
+		f32 Hash2(const int x, const int z, const f32 seed)
+		{
+			uint32 n = (uint32)x * 1597334673u ^ (uint32)z * 3812015801u ^ (uint32)(seed * 1000.f) * 2798796415u;
+			n ^= n >> 15; n *= 2246822519u; n ^= n >> 13; n *= 3266489917u; n ^= n >> 16;
+			return (f32)(n >> 8) * (1.f / 16777216.f);
+		}
+		f32 Value2(const f32 x, const f32 z, const f32 seed)
+		{
+			const int ix = (int)floorf(x), iz = (int)floorf(z);
+			f32 fx = x - ix, fz = z - iz;
+			fx = fx * fx * (3.f - 2.f * fx); fz = fz * fz * (3.f - 2.f * fz);
+			const f32 a = Hash2(ix, iz, seed), b = Hash2(ix + 1, iz, seed), cc = Hash2(ix, iz + 1, seed), d = Hash2(ix + 1, iz + 1, seed);
+			return (a + (b - a) * fx) + ((cc + (d - cc) * fx) - (a + (b - a) * fx)) * fz;
+		}
+		f32 Lumps(const f32 x, const f32 z, const f32 seed) { return Value2(x * 1.1f, z * 1.1f, seed) * 0.7f + Value2(x * 3.3f, z * 3.3f, seed + 7.f) * 0.3f; }
+	}
+
 	// A fire's fuel, spilled: it runs over what it lands on as a liquid would - from where the bottle broke, the lowest
 	// ground next to what it already covers first (so it runs downhill and pools in a hollow, spreading evenly over a flat
 	// floor), climbing no step higher than a few centimetres and nothing above where it started (a wall stops it, a
@@ -471,10 +491,22 @@ namespace p3d {
 				if (seen[(size_t)j]) continue;
 				const f32 hj = ground[(size_t)j];
 				if (hj <= none || hj > hi + 0.07f || hj > startH + 0.1f) continue;     // (no ground; a step up; above where it began)
+				// (and nothing standing between the two, just over the ground: a column's ray down starts inside a wall taller
+				// than where the bottle broke and goes through it - a ray ignores what it starts in - finding the floor beyond,
+				// and the fuel ran under the wall into the next room)
+				{
+					const f32 y = std::max(hi, hj) + 0.06f;
+					const Vec3 a(s.origin.x + (x + 0.5f) * s.cell, y, s.origin.z + (z + 0.5f) * s.cell);
+					const Vec3 b(s.origin.x + (jx + 0.5f) * s.cell, y, s.origin.z + (jz + 0.5f) * s.cell);
+					if (c.physics->RayCast(a, b).hasHit || c.physics->RayCast(b, a).hasHit) continue;
+				}
 				seen[(size_t)j] = 1;
-				// (lowest first - downhill, into a hollow; on the flat the nearest, so it spreads round)
+				// (lowest first - downhill, into a hollow; on the flat it would take the nearest and spread as a disc - a spill
+				// runs out in lobes and fingers, so on top of the distance a lumpy noise fixed in the world: where it is low the
+				// fuel runs on, where high it holds back)
 				const f32 dist = sqrtf((f32)((jx - sx) * (jx - sx) + (jz - sz) * (jz - sz))) * s.cell;
-				q.push(Entry(hj + dist * 0.04f, j));
+				const f32 wx = s.origin.x + (jx + 0.5f) * s.cell, wz = s.origin.z + (jz + 0.5f) * s.cell;
+				q.push(Entry(hj + dist * 0.03f + Lumps(wx, wz, (f32)(c.serial % 61)) * 0.16f, j));
 			}
 		}
 		uint32 noneBits; memcpy(&noneBits, &none, 4);
@@ -573,8 +605,11 @@ namespace p3d {
 			// lifted by its own heat alone, no jet)
 			if (!s.pool.empty())
 			{
-				d.pool[0] = 1.f; d.pool[1] = 0.35f; d.pool[3] = (f32)((s.cells + s.nx * s.nz + 31) / 32);
+				d.pool[0] = 1.f; d.pool[1] = 0.22f; d.pool[3] = (f32)((s.cells + s.nx * s.nz + 31) / 32);
 				d.inject[3] = 0.f;
+				// (a burning spill is a low carpet of flames over the liquid, licking up here and there - not one tall fire: less
+				// fuel fed at once, lifted less; the soot still goes up off it)
+				d.inject[2] = 3.f * c.emission; d.forces[0] = 2.8f; d.turb[3] = 6.f;
 			}
 		}
 		else if (s.kind == 3)
