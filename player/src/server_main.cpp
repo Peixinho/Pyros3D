@@ -87,6 +87,9 @@
 #else
 #include <unistd.h>
 #endif
+#if defined(__GLIBC__)
+#include <malloc.h>
+#endif
 
 #include <atomic>
 #include <chrono>
@@ -390,6 +393,17 @@ int main(int argc, char** argv)
 		return 1;
 	}
 	std::string().swap(text);	// (the scene as text, prefabs expanded: megabytes nothing reads again)
+	// Memory freed is given back. glibc keeps what was freed for the next allocation, in an arena per
+	// thread that allocated: the load's passing work - files read, meshes laid out on loader threads -
+	// stayed in the process, and on a small machine in its swap: 714 MB held for a server whose live
+	// data is under 200. Given back after the load, and every half minute as the world streams.
+	const auto giveBack = []() {
+#if defined(__GLIBC__)
+		malloc_trim(0);
+#endif
+	};
+	giveBack();
+	f64 giveBackClock = 0.0;
 
 	NetworkSession* session = new NetworkSession(scene, sceneAbs, physics, luaPtr);
 #ifdef LUA_BINDINGS
@@ -566,6 +580,8 @@ int main(int argc, char** argv)
 		}
 #endif
 		if (session->Bans().size() != bansSaved) saveBans();
+		giveBackClock += dt;
+		if (giveBackClock >= 30.0) { giveBackClock = 0.0; giveBack(); }
 		// --stats: what a frame costs and what goes out, every few seconds.
 		if (statsEvery > 0.0)
 		{
