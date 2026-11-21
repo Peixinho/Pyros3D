@@ -19,6 +19,8 @@ layout(set = 1, binding = 7, std140) uniform ShadowData
 	vec4 reflections;        // screen-space reflections: x on (1) or off, y: how far a ray goes (metres), z: steps, w: the frame (its jitter)
 	vec4 rain;               // x: the local tile that looks straight down round the eye while it rains (-1 none): what is under cover;
 	                         // y: what of the sun an overcast deck lets through (1 none); z: the ambient occlusion's share on direct light
+	mat4 focus;              // the sun's focus shadow (DirectionalLight::SetShadowFocus): world -> its clip space
+	vec4 focusParams;        // x: on (1) or off, y: its texel in world units
 } uShadow;
 layout(set = 1, binding = 15) uniform texture2D uCloudShadow;
 
@@ -93,6 +95,35 @@ int SunCascade(vec3 worldPos)
 	return depth >= uShadow.params.z ? 4 : c;
 }
 
+// The focus shadow: the sun again, over a few metres round what the player follows - a 2048 square of the atlas's right
+// half, its lower left. Returns how much of the sun it sees (1 lit), and in `weight` how much it is to be trusted there:
+// 1 well inside its square, fading to 0 at its edge, 0 outside it
+float FocusShadow(vec3 worldPos, vec3 n, float rotation, out float weight)
+{
+	weight = 0.0;
+	if (uShadow.focusParams.x < 0.5) return 1.0;
+	vec3 p = worldPos + n * uShadow.focusParams.y * uShadow.params.w;
+	vec4 clip = uShadow.focus * vec4(p, 1.0);
+	vec3 ndc = clip.xyz / clip.w;
+	float edge = max(abs(ndc.x), abs(ndc.y));
+	if (edge >= 1.0 || ndc.z < 0.0 || ndc.z > 1.0) return 1.0;
+	weight = 1.0 - smoothstep(0.8, 0.98, edge);
+	vec2 uv = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+	const vec2 corner = vec2(0.5, 0.5), size = vec2(0.25, 0.5);    // (its square: x from the atlas's middle, the lower half)
+	vec2 texel = uShadow.atlas.xy;
+	vec2 kernel = 1.5 * max(uShadow.params.x, 0.5) * texel;         // (the sun's softness, in its own finer texels)
+	vec2 lo = corner + kernel + texel, hi = corner + size - kernel - texel;
+	float s = sin(rotation), co = cos(rotation);
+	mat2 rot = mat2(co, s, -s, co);
+	float lit = 0.0;
+	for (int i = 0; i < 16; i++)
+	{
+		vec2 at = clamp(corner + uv * size + (rot * kPoisson[i]) * kernel, lo, hi);
+		lit += textureLod(sampler2DShadow(uShadowAtlas, uShadowCompare), vec3(at, ndc.z), 0.0);
+	}
+	return lit / 16.0;
+}
+
 float SunShadow(vec3 worldPos, vec3 n, vec2 fragCoord)
 {
 	if (uShadow.params.y < 0.5) return 1.0;
@@ -110,7 +141,10 @@ float SunShadow(vec3 worldPos, vec3 n, vec2 fragCoord)
 		float next = c < 3 ? CascadeShadow(c + 1, worldPos, n, rotation) : 1.0;
 		lit = mix(lit, next, (t - 0.9) / 0.1);
 	}
-	return lit;
+	// (near what the player follows: the focus shadow's, sharp, in place of the cascades' - blended at its square's edge)
+	float weight;
+	float focusLit = FocusShadow(worldPos, n, rotation, weight);
+	return mix(lit, focusLit, weight);
 }
 
 // How much of a point or spot light reaches this point: 1 lit, 0 in shadow. `tile` its first tile (a point light's six

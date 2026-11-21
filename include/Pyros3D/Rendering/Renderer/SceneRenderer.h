@@ -103,6 +103,13 @@ namespace p3d {
 		// Auto exposure (on by default): the scene's average brought to middle grey, compensated by `ev` stops; off,
 		// the exposure is 2^ev
 		void SetAutoExposure(const bool on, const f32 ev = 0.f) { autoExposure = on; exposureEV = ev; exposureRestart = true; }
+		// The auto exposure meters only what is this far from the eye and further (m; 0: everything): a view from inside
+		// something - a car's cabin - is exposed for what is seen out of it, as the eye in it is
+		void SetExposureMeterFrom(const f32 metres) { meterFrom = std::max(metres, 0.f); }
+		// Keep each frame's picture for the next (uPreviousColor) though no reflections want it: a custom surface that
+		// shows what is behind it - water on a car's glass - reads it. (With the reflections off it was not kept: the
+		// glass's drops showed a picture minutes old, dark pits all over the view)
+		void SetKeepPicture(const bool on) { keepPicture = on; }
 		// The physical sky (atmosphere.glsl): drawn behind everything, and lighting the scene in place of the flat ambient
 		void SetSky(const bool on) { skyOn = on; }
 		// The air between the eye and what it sees (aerial perspective, with the sky): 1 the real atmosphere's, more for
@@ -153,7 +160,9 @@ namespace p3d {
 		// The ambient occlusion's reach (metres), strength (a power on what it leaves lit: 1 as it is) and its share on the
 		// direct light (0 the ambient's alone; 0.2, the default, as the old renderer's SSAO) - a scene's SSAO
 		void SetAmbientOcclusion(const f32 radius, const f32 strength, const f32 direct = 0.2f) { aoRadius = std::min(std::max(radius, 0.05f), 8.f); aoStrength = std::min(std::max(strength, 0.f), 4.f); aoDirect = std::min(std::max(direct, 0.f), 1.f); }
-		void SetAntiAliasing(const AntiAliasing mode) { if ((mode == AntiAliasing::TAA) != taaOn) taaHistory = false; taaOn = mode == AntiAliasing::TAA; fxaaOn = mode == AntiAliasing::FXAA; }
+		// (without TAA, levels of detail switch at once: their crossfade is a dither only the temporal resolve smooths - with
+		// FXAA or none, a tree mid hand-over showed its two levels in a pattern that crawled as it moved: trees flickering)
+		void SetAntiAliasing(const AntiAliasing mode);
 		AntiAliasing GetAntiAliasing() const { return taaOn ? AntiAliasing::TAA : fxaaOn ? AntiAliasing::FXAA : AntiAliasing::None; }
 		// A cut: what the temporal anti-aliasing kept of the last view is not the next one's
 		void ResetHistory() { taaHistory = false; }
@@ -290,7 +299,7 @@ namespace p3d {
 		// (strength ~0.3-1), depth of field (focused at `focus` metres, sharp `range` metres deep, `blur` the most pixels
 		// out of focus), motion blur (the shutter: 1 a whole frame's move on screen; ~0.5 a film camera's)
 		void SetSunShafts(const f32 strength) { shaftsStrength = std::max(strength, 0.f); }
-		void SetDepthOfField(const f32 focus, const f32 range, const f32 blur) { dofFocus = std::max(focus, 0.01f); dofRange = std::max(range, 0.f); dofBlur = std::min(std::max(blur, 0.f), 24.f); }
+		void SetDepthOfField(const f32 focus, const f32 range, const f32 blur) { dofFocus = std::max(focus, 0.01f); dofRange = std::max(range, 0.f); dofBlur = std::min(std::max(blur, 0.f), 64.f); }
 		void SetMotionBlur(const f32 shutter) { motionShutter = std::min(std::max(shutter, 0.f), 2.f); }
 		f32 shaftsStrength = 0.f, dofFocus = 10.f, dofRange = 4.f, dofBlur = 0.f, motionShutter = 0.f;
 		// The scene's reflection probes (ReflectionProbe): seen by this renderer - a probe a frame, six views of it by a
@@ -325,6 +334,11 @@ namespace p3d {
 		bool GetRenderThread() const { return threaded; }
 		void WaitIdle();
 		static void WaitAllIdle();
+		// Texture quality, for a machine short of video memory: a material's maps made with their first levels left
+		// out (0: whole; 1: half each way, a quarter of the memory; 2: a quarter each way) - never under 256 texels on
+		// the long side. The maps made from then on: those on the card already stay as they are till loaded again.
+		static void SetTextureMipSkip(const uint32 levels);
+		static uint32 GetTextureMipSkip();
 
 		const gfx::FrameStats &Stats() const { return device->LastFrameStats(); }
 	private:
@@ -356,6 +370,9 @@ namespace p3d {
 			uint64 vertexCapacity = 0, indexCapacity = 0;     // (its buffers' sizes: a geometry rebuilt - a text - written into them)
 			uint64 colorCapacity = 0; bool colorsStale = false;     // (and its colours' - kept, written again when its geometry changed: made anew each time, a HUD's changing texts each made a buffer every frame)
 			uint64 writtenAt = 0;     // (the gather that found one of its buffers written - contentScan's)
+			// (a two-sided mesh with faces back to back, drawn one-sided: its triangles, and those with no other at their
+			// back a second time, turned round - SidedFor)
+			gfx::Buffer sided; uint32 sidedCount = 0; uint64 sidedRevision = ~0ull;
 		};
 		// (which geometries each buffer is of - noted as their GPU meshes are made - and how far GeometryBuffer's writes
 		// have been read: each gather marks the geometries of the buffers written since)
@@ -377,6 +394,7 @@ namespace p3d {
 			uint32 revision = 0xFFFFFFFFu;
 			uint32 textureId = 0;     // (the texture it was made of: another at a freed one's address is not it)
 			uint32 floatW = 0, floatH = 0;     // (a float texture's size, written again in place while it keeps it)
+			bool flat = false;     // (made one level, no mips: written again in place - a film's frames)
 			gfx::Texture placeholder;     // (1x1, the picture's average colour: drawn while it is made, not white - kept till the renderer goes: forgetting it remade every material)
 		};
 
@@ -414,6 +432,7 @@ namespace p3d {
 			// pipeline and group, its colours' stream
 			f32 uv[4] = { 1.f, 1.f, 0.f, 0.f }; f32 alphaCutoff = 0.f; f32 wind[4] = { 0.f, 0.f, 0.f, 0.f }; Vec4 impostorData;
 			bool alphaTestOption = false, textRendering = false; uint8 customCull = 0;
+			bool sided = false;        // (drawn from its mesh's `sided` indices, back faces culled - SidedFor)
 			uint32 dataIndex = ~0u, customParams = 0;
 			gfx::Pipeline customPrepass; gfx::BindGroup customPrepassGroup; gfx::Buffer colors;
 		};
@@ -515,6 +534,7 @@ namespace p3d {
 		void RecordParticles(gfx::CommandList* cl, const uint32 frameOffset, const bool half = false);
 		std::vector<std::pair<f32, ParticleSystem*> > particleSystems;
 		gfx::Pipeline particleAlphaPipeline, particleAddPipeline;
+		uint32 particleLightOffset = 0;     // (this frame's slot of the lights, for the lit particles' point and spot lights)
 		gfx::Buffer particleRing;
 		std::map<uint32_t, gfx::BindGroup> particleGroups;     // (by texture)
 		// Systems simulated on the GPU (ParticleSystemDesc::gpuSimulation): each one's ring of particles and the stream
@@ -597,6 +617,9 @@ namespace p3d {
 		void CreateDefaults();
 		void EnsureTargets(const uint32 width, const uint32 height);
 		MeshGpu* MeshFor(IGeometry* geometry);
+		bool SidedFor(IGeometry* geometry, MeshGpu* mesh);
+		static bool BuildSided(IGeometry* geometry, std::vector<uint32> &out);
+		static std::shared_ptr<const std::vector<uint32> > SidedIndices(IGeometry* geometry, const uint64 revision);
 		gfx::Shader surfaceColorVS;     // (surface.vert@VERTEX_COLOR)
 		static AttributeSource SourceOf(IGeometry* g, const char* name);
 		// What a geometry's GPU copy is made of: its buffers' handles and every packed buffer's bytes (a sprite
@@ -636,6 +659,8 @@ namespace p3d {
 		gfx::Texture shadowAtlas;
 		gfx::Sampler shadowCompare;
 		Matrix cascadeMatrix[4];
+		Matrix focusMatrix; f32 focusRadius = 0.f; bool focusOn = false;     // (the sun's focus shadow, this frame)
+		uint32 localCap = 64;                                                // (the local tiles there are room for this frame)
 		f32 cascadeRadius[4] = {}, cascadeNear[4] = {}, cascadeFar[4] = {};
 		Vec3 lastSunGoes = Vec3(0.f, -1.f, 0.f);     // (the way the sun's light went last frame)
 		f32 lastSunShadowFar = -1.f;     // (the sun's shadow distance last frame, 0 for none: what Gather keeps off-screen for shadows; -1 until known)
@@ -661,9 +686,10 @@ namespace p3d {
 		void RecordCloudShadow(gfx::CommandList* cl, const uint32 frameOffset, const uint32 slot);
 		// (two targets in turn: each frame's clouds blended into the last's)
 		gfx::Texture cloudNoise, cloudTex[2]; gfx::Sampler repeatLinear; gfx::Pipeline cloudsPipeline; gfx::Shader cloudsFS; gfx::BindGroup cloudsGroup[2], skyGroups[2];
-		Matrix previousViewProjection; bool cloudHistory = false; uint32 cloudFrame = 0;
+		Matrix previousViewProjection; bool cloudHistory = false; uint32 cloudFrame = 0; f32 postFrameSeconds = 1.f / 60.f; f32 cloudLogAt = -10.f;
+		struct RecordedSettings { f32 dofFocus = 0.f, dofRange = 0.f, dofBlur = 0.f, motionShutter = 0.f, shaftsStrength = 0.f, bloomIntensity = 0.f, bloomThreshold = 0.f, bloomKnee = 0.f, exposureEV = 0.f; bool autoExposure = false, exposureRestart = false; Grade grade; } rec; f32 cloudLastSeconds = 0.f;
 		void CreateClouds();
-		void RecordClouds(gfx::CommandList* cl, const uint32 frameOffset, const uint32 slot);
+		void RecordClouds(gfx::CommandList* cl, const uint32 frameOffset, const uint32 slot, const uint32 cur);
 		// Ambient occlusion: a 1x depth prepass, GTAO at half resolution, blurred both ways (aoA is the result)
 		gfx::Pipeline depthPipeline, depthInstPipeline, gtaoPipeline, aoBlurPipeline;
 		gfx::Shader depthAlphaVS, depthInstAlphaVS, depthAlphaFS, alphaCutFS, surfaceNoCutFS; gfx::Pipeline depthAlphaPipeline, depthInstAlphaPipeline;
@@ -716,7 +742,7 @@ namespace p3d {
 		gfx::Texture displayTex[2]; gfx::Shader presentFS; gfx::Pipeline tonemapToDisplayPipeline, presentPipeline; gfx::BindGroup tonemapToDisplayGroups[2];
 		bool fxaaOn = false; gfx::Shader fxaaFS; gfx::Pipeline fxaaPipeline; gfx::BindGroup fxaaGroup;
 		void RecordFXAA(gfx::CommandList* cl, const uint32 frameOffset);
-		void RecordTemporalAA(gfx::CommandList* cl, const uint32 frameOffset, const uint32 slot);     // (hdrPrevious: last frame's picture - what screen-space reflections find)
+		void RecordTemporalAA(gfx::CommandList* cl, const uint32 frameOffset, const uint32 slot, const uint32 cur);     // (hdrPrevious: last frame's picture - what screen-space reflections find)
 		// Reflection probes (CaptureProbe): their atlas - a block each, 4 across, each 256x272 (six roughnesses, 256 wide
 		// halving to 32, one under the other) - the six views' pictures of the one being seen, and the renderer that sees them
 		// (one a declaration: in an exported class MSVC refuses every name after the first of a list - C2487)
@@ -733,6 +759,8 @@ namespace p3d {
 		gfx::Texture giIrradiance, giVisibility, giProbes, giRadiance; uint32 giShape[5] = {};
 		void UploadGlobalIllumination();
 		bool meterBackground = true;     // (the exposure meters what is behind everything: a sky)
+		f32 meterFrom = 0.f, meterDepth = 0.f;     // (SetExposureMeterFrom, and this frame's depth of it - 0: none)
+		bool keepPicture = false;            // (SetKeepPicture)
 		uint32 notDrawnYet = 0;     // (the last frame's visible surfaces whose pipelines were not ready)
 		bool probesOn = true; uint32 probeFilterSlot = UINT32_MAX;     // (the block of the one seen this frame)
 		gfx::Texture probeAtlas, probeFaces[6], probeFaceLdr;
@@ -770,6 +798,7 @@ namespace p3d {
 			GenericShaderMaterial* gm = nullptr; CustomShaderMaterial* cm = nullptr;
 			CustomSurface* surface = nullptr; uint64 surfaceHash = 0;
 			bool transparent = false, alphaCut = false; uint32 cull = 0;
+			bool sided = false;        // (two-sided, its faces back to back: drawn one-sided from its mesh's `sided` indices - SidedFor)
 			bool wantsCut = false;     // (drawn mid crossfade: its cut pipelines made though it cuts nothing)
 			Texture* maps[5] = { nullptr, nullptr, nullptr, nullptr, nullptr }; uint32 mapRevisions[5] = { 0, 0, 0, 0, 0 };     // (colour, normal, metal-rough, emission, height)
 			gfx::Pipeline pipeline, pipelineInstanced; gfx::BindGroup group; gfx::Texture baseMap;
@@ -780,6 +809,14 @@ namespace p3d {
 			Matrix lastModel; uint64 modelFrame = ~0ull;      // (its matrix, and the frame it was drawn with it)
 			bool skinnedPipeline = false;
 		};
+	public:
+		// (a second view of the scene - a SceneView: a mirror, a scope - finds its meshes' records in its own table and leaves
+		// the meshes' pointer to the main view's)
+		void SetSecondaryView(const bool on) { secondaryView = on; }
+		// every two-sided mesh of the scene worked out ahead, within budgetMs: how many are still to do (SceneRenderer.cpp)
+		static size_t PrepareMeshes(SceneGraph* scene, const f64 budgetMs);
+	private:
+		bool secondaryView = false;
 		std::unordered_map<RenderingMesh*, MeshDraw> meshDraws;     // (its nodes stay where they are: RenderingMesh::drawRecord points at them)
 		uint32 meshDrawGeneration = 0;     // (unique to this renderer and this table: a mesh's drawRecord from another, or from before a clear, is not used)
 		static uint32 NewDrawGeneration();

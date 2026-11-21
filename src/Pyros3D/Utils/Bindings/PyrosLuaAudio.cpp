@@ -178,6 +178,7 @@ namespace p3d {
 				"pause", &AudioSource::Pause,
 				"stop", &AudioSource::Stop,
 				"isPlaying", &AudioSource::IsPlaying,
+				"getTime", &AudioSource::GetTime,
 				"setLooping", &AudioSource::SetLooping,
 				"isLooping", &AudioSource::IsLooping,
 				"setVolume", &AudioSource::SetVolume,

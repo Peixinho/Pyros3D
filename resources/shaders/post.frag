@@ -26,12 +26,17 @@ float DepthAt(vec2 uv)
 
 float InterleavedNoise(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
 
-// How blurred a point at this depth is, in pixels: nothing within the sharp band round the focus, more the further out
+// How blurred a point at this depth is, in pixels - a thin lens: the blur circle grows as |1 - focus/distance|, so far
+// off it settles to the lens's largest (a background behind a subject is all equally soft, as in a photograph) and near
+// the lens it grows fast; nothing within the sharp band round the focus
 float Blur(float depth)
 {
 	float d = depth <= 0.0 ? 1e5 : DepthDistance(depth);
-	float off = max(abs(d - uDraw.dof.x) - uDraw.dof.y * 0.5, 0.0);
-	return uDraw.dof.z * clamp(off / max(uDraw.dof.x, 1.0), 0.0, 1.0);
+	float f = max(uDraw.dof.x, 0.1);
+	float band = uDraw.dof.y * 0.5;
+	float near = max(f - band, 0.05), far = f + band;
+	float k = d < near ? (near / d - 1.0) : (d > far ? (1.0 - far / d) : 0.0);
+	return uDraw.dof.z * clamp(k * 1.6, 0.0, 1.0);
 }
 
 void main()
@@ -39,38 +44,53 @@ void main()
 	vec3 c = texture(sampler2D(uScene, uLinearClamp), vUV).rgb;
 	vec2 px = uFrame.viewport.zw;
 
-	// Depth of field: a disc gathered round the pixel, as wide as its own blur; a sample counts only as far as its own blur
-	// reaches back to here - a sharp thing does not smear, a near blurred one spreads over what is behind it
+	// Depth of field, gathered: a disc of samples round the pixel as wide as the largest blur near it, each counted only
+	// as far as its own blur reaches back to here (scatter as gather) - a sharp thing never smears, a blurred one in
+	// front spreads over what is behind it, and a sharp one in front is not hazed by the soft background round it.
+	// Up to 96 samples in rings, so a wide blur is a smooth one and not copies of the picture laid over each other (the
+	// first, 31 samples over 24 px, broke up into stripes); bright points weighted up into soft discs - bokeh.
 	if (uDraw.dof.z > 0.0)
 	{
 		float d0 = DepthAt(vUV), r0 = Blur(d0);
-		vec3 sum = c; float weight = 1.0;
+		// (how wide to look: this pixel's own blur, or the largest a nearer blurred thing could reach here with)
+		float R = max(r0, uDraw.dof.z * 0.5);
+		vec3 sum = vec3(0.0); float weight = 0.0;
 		const float golden = 2.39996323;
-		// (the disc turned and its rings shifted by a noise that changes each pixel and each frame: no ring of samples
-		// repeats a thin edge as rings - the noise the temporal resolve after this averages away)
 		float spin = InterleavedNoise(gl_FragCoord.xy + fract(uFrame.sky.z * 7.31) * 113.0) * 6.2831853;
 		float shift = InterleavedNoise(gl_FragCoord.yx + fract(uFrame.sky.z * 3.17) * 71.0);
-		for (int i = 1; i < 32; i++)
+		int N = int(clamp(R * R * 0.30, 12.0, 128.0));
+		for (int i = 0; i < 128; i++)
 		{
-			float t = sqrt((float(i) - shift) / 31.0);
+			if (i >= N) break;
+			float t = sqrt((float(i) + shift) / float(N));
 			float a = float(i) * golden + spin;
-			vec2 o = vec2(cos(a), sin(a)) * t * uDraw.dof.z;
+			vec2 o = vec2(cos(a), sin(a)) * t * R;
 			vec2 uv = vUV + o * px;
 			float ds = DepthAt(uv), rs = Blur(ds);
 			float dist = length(o);
-			// (a sample counts where its own blur reaches here; one behind this point - reversed Z: a smaller depth - no
-			// further than this point's own blur, so a blurred background does not haze over a sharp thing in front)
 			float reach = ds < d0 ? min(rs, r0) : rs;
-			float w = smoothstep(dist - 1.0, dist, reach);
-			sum += texture(sampler2D(uScene, uLinearClamp), uv).rgb * w; weight += w;
+			float w = clamp(reach - dist + 1.0, 0.0, 1.0);
+			// (a blurred sample's light spread over its whole circle: weighted by its area's inverse, so a big soft thing
+			// does not outweigh what is in focus; never past a sharp one's)
+			w /= max(1.0, rs * rs * 0.04);
+			vec3 cs = texture(sampler2D(uScene, uLinearClamp), uv + px * 0.5 * (rs > 3.0 ? 1.0 : 0.0)).rgb;
+			float lum = dot(cs, vec3(0.2126, 0.7152, 0.0722));
+			w *= 1.0 + 2.0 * clamp(lum - 1.5, 0.0, 4.0) * clamp(rs / 4.0, 0.0, 1.0);
+			sum += cs * w; weight += w;
 		}
-		c = sum / weight;
+		// (the pixel itself, always: a sharp one is itself)
+		float self = 1.0 / max(1.0, r0 * r0 * 0.04);
+		c = (sum + c * self) / (weight + self);
 	}
 
 	// Motion blur: along the pixel's move on screen this frame, as long as the shutter was open
 	if (uDraw.motion.x > 0.0)
 	{
-		vec2 v = texture(sampler2D(uVelocity, uLinearClamp), vUV).xy * uDraw.motion.x;
+		vec2 v = texture(sampler2D(uVelocity, uLinearClamp), vUV).xy;
+		// (nothing drawn there - the sky: the velocity's "no surface" mark, 10000 px. Taken as a move, every sky pixel was
+		// smeared 24 px along one diagonal and the edges against it bled into it)
+		if (abs(v.x) > 1000.0) v = vec2(0.0);
+		v *= uDraw.motion.x;
 		float len = length(v / px);
 		if (len > 0.5)
 		{

@@ -57,6 +57,22 @@ namespace p3d {
 		return sounding;
 	}
 
+	uint32 AudioSource::LiveCount() { return (uint32)LiveSources().size(); }
+
+	void AudioSource::Register(SceneGraph* Scene)
+	{
+		if (!leftSounding) return;
+		leftSounding = false;
+		if (loaded && sound != NULL) ma_sound_start(sound);
+	}
+
+	void AudioSource::Unregister(SceneGraph* Scene)
+	{
+		if (!loaded || sound == NULL || ma_sound_is_playing(sound) != MA_TRUE) return;
+		ma_sound_stop(sound);
+		leftSounding = true;
+	}
+
 	AudioSource::AudioSource(const std::string &file, const bool stream, const std::shared_ptr<AudioBus> &bus)
 		: IComponent(), file(file), loaded(false), sound(NULL), bus(bus),
 		looping(false), spatialized(true), volume(1.f), pitch(1.f), pan(0.f),
@@ -158,6 +174,7 @@ namespace p3d {
 
 	void AudioSource::Play()
 	{
+		leftSounding = false;
 		if (!EnsureLoaded())
 			return;
 		// Push the owner's world pose before starting so the first audible
@@ -184,15 +201,25 @@ namespace p3d {
 	{
 		// ma_sound_stop() halts without rewinding, so a following Play()
 		// resumes - which is exactly "pause". Stop() below adds the rewind.
+		leftSounding = false;
 		if (!loaded) return;
 		ma_sound_stop(sound);
 	}
 
 	void AudioSource::Stop()
 	{
+		leftSounding = false;
 		if (!loaded) return;
 		ma_sound_stop(sound);
 		ma_sound_seek_to_pcm_frame(sound, 0);
+	}
+
+	f64 AudioSource::GetTime() const
+	{
+		if (!sound || !loaded) return -1.0;
+		float t = 0.f;
+		if (ma_sound_get_cursor_in_seconds(sound, &t) != MA_SUCCESS) return -1.0;
+		return (f64)t;
 	}
 
 	bool AudioSource::IsPlaying() const

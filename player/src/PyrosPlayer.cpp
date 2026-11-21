@@ -1,3 +1,4 @@
+#include <ctime>
 #include <sys/stat.h>
 #include <Pyros3D/Rendering/ShaderGlobals.h>
 #include <Pyros3D/Core/InputManager/TouchControls.h>
@@ -108,6 +109,8 @@ static void HoldBenchCamera(p3d::GameObject* camera, p3d::SceneGraph* scene)
 #endif
 
 using json = nlohmann::json;
+// (pauseGame() from a script: the physics, and with it every body and car, not stepped)
+static bool sGamePaused = false;
 namespace fs = std::filesystem;
 
 // ============================== manifest ===============================
@@ -169,6 +172,8 @@ namespace {
 		}
 
 		m.title = j.value("title", m.title);
+		// (the folder its saves live in - its title unless said: a game renamed keeps its players' settings)
+		m.saveFolder = j.value("saveFolder", std::string());
 		m.startupScene = j.value("startupScene", std::string());
 		m.touchControls = j.value("touchControls", std::string());
 		m.serverPublicKey = j.value("serverPublicKey", std::string());
@@ -184,6 +189,17 @@ namespace {
 			m.quality = q;
 			// "frameRateLimit": no more frames a second than that (left out, -1 or 0: as the display refreshes)
 			m.qFrameLimit = q.value("frameRateLimit", -2.f);
+			// "msaa": 2 or 4 samples on the scene's geometric edges, under the temporal AA (said before the renderer
+			// is made - it reads PYROS_MSAA once; set in the environment it still wins)
+			if (q.contains("msaa") && q["msaa"].is_number() && !getenv("PYROS_MSAA"))
+			{
+				const std::string n = std::to_string(q["msaa"].get<int>());
+#ifdef _WIN32
+				_putenv_s("PYROS_MSAA", n.c_str());
+#else
+				setenv("PYROS_MSAA", n.c_str(), 1);
+#endif
+			}
 		}
 		if (j.contains("preload") && j["preload"].is_array())
 			for (const auto &e : j["preload"]) if (e.is_string()) m.preload.push_back(e.get<std::string>());
@@ -481,10 +497,106 @@ end
 	// display changes and Alt+Tab is instant. Alt+Enter and F11 do the same from the
 	// keyboard in any game (Update()).
 	lua.set_function("setFullscreen", [this](bool on) {
+		// (from a mode of its own - setFullscreenMode - to the desktop's: out first, so the display is put back)
+		if (on && (SDL_GetWindowFlags(GetSDLWindow()) & SDL_WINDOW_FULLSCREEN_DESKTOP) == SDL_WINDOW_FULLSCREEN) SDL_SetWindowFullscreen(GetSDLWindow(), 0);
 		return SDL_SetWindowFullscreen(GetSDLWindow(), on ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0) == 0;
 	});
 	lua.set_function("isFullscreen", [this]() {
 		return (SDL_GetWindowFlags(GetSDLWindow()) & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_FULLSCREEN_DESKTOP)) != 0;
+	});
+	// setVSync(on): frames shown on the display's refresh (on), or as fast as they are made (off - whole frames
+	// still, where the device has a way). getVSync(): which it is.
+	// (now, from the game's update: no frame is open on the device there, and the one before is waited out first -
+	// its recording and its present are the render thread's)
+	lua.set_function("setVSync", [this](const bool on) {
+		if (GetDevice() == NULL || GetDevice()->VSync() == on) return;
+		SceneRenderer::WaitAllIdle();
+		GetDevice()->SetVSync(on);
+	});
+	lua.set_function("getVSync", [this]() { return GetDevice() != NULL && GetDevice()->VSync(); });
+	// The screen the window is on: getDesktopMode() -> width, height, hertz as the desktop has it;
+	// getDisplayModes() -> { { width, height, hz }, ... } every mode it can be put in, the biggest first, each once.
+	lua.set_function("getDesktopMode", [this]() {
+		SDL_DisplayMode mode;
+		const int display = GetSDLWindow() ? SDL_GetWindowDisplayIndex(GetSDLWindow()) : 0;
+		if (SDL_GetDesktopDisplayMode(display < 0 ? 0 : display, &mode) != 0) return std::make_tuple(0, 0, 0);
+		return std::make_tuple(mode.w, mode.h, mode.refresh_rate);
+	});
+	lua.set_function("getDisplayModes", [this]() {
+		sol::table out = lua.create_table();
+		const int display = std::max(0, GetSDLWindow() ? SDL_GetWindowDisplayIndex(GetSDLWindow()) : 0);
+		std::set<std::tuple<int, int, int> > seen;
+		const int n = SDL_GetNumDisplayModes(display);     // (SDL's order: the biggest first, the faster first)
+		for (int i = 0; i < n; i++)
+		{
+			SDL_DisplayMode mode;
+			if (SDL_GetDisplayMode(display, i, &mode) != 0) continue;
+			if (!seen.insert(std::make_tuple(mode.w, mode.h, mode.refresh_rate)).second) continue;
+			sol::table m = lua.create_table();
+			m["width"] = mode.w; m["height"] = mode.h; m["hz"] = mode.refresh_rate;
+			out.add(m);
+		}
+		return out;
+	});
+	// getWindowSize() -> width, height: the window as the desktop counts it (on a dense screen not the picture's
+	// pixels - getRenderSize - but what setWindowSize and the display's modes are in).
+	lua.set_function("getWindowSize", [this]() {
+		int w = 0, h = 0;
+		if (GetSDLWindow()) SDL_GetWindowSize(GetSDLWindow(), &w, &h);
+		return std::make_tuple(w, h);
+	});
+	// setWindowSize(width, height): a window that size (out of the whole screen if it was), in the middle of its screen.
+	lua.set_function("setWindowSize", [this](const int w, const int h) {
+		SDL_Window* win = GetSDLWindow();
+		if (win == NULL || w < 320 || h < 200) return false;
+		if (SDL_GetWindowFlags(win) & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_FULLSCREEN_DESKTOP)) SDL_SetWindowFullscreen(win, 0);
+		const int display = std::max(0, SDL_GetWindowDisplayIndex(win));
+		SDL_SetWindowSize(win, w, h);
+		SDL_SetWindowPosition(win, SDL_WINDOWPOS_CENTERED_DISPLAY(display), SDL_WINDOWPOS_CENTERED_DISPLAY(display));
+		return true;
+	});
+	// setFullscreenMode(width, height, hz): the whole screen in a mode of its own - the display itself changes to it
+	// (hz 0: the fastest it has at that size). The nearest mode the screen has is taken; false when it has none or
+	// would not change. setFullscreen(true) is the other kind: the desktop's own mode, nothing about the display changed.
+	lua.set_function("setFullscreenMode", [this](const int w, const int h, sol::optional<int> hz) {
+		SDL_Window* win = GetSDLWindow();
+		if (win == NULL || w <= 0 || h <= 0) return false;
+		const int display = std::max(0, SDL_GetWindowDisplayIndex(win));
+		SDL_DisplayMode want, got;
+		SDL_zero(want); want.w = w; want.h = h; want.refresh_rate = hz.value_or(0);
+		if (want.refresh_rate <= 0)
+		{
+			// (the fastest at that size: SDL lists a size's modes fastest first)
+			const int n = SDL_GetNumDisplayModes(display);
+			for (int i = 0; i < n; i++) { SDL_DisplayMode m; if (SDL_GetDisplayMode(display, i, &m) == 0 && m.w == w && m.h == h) { want.refresh_rate = m.refresh_rate; break; } }
+		}
+		if (SDL_GetClosestDisplayMode(display, &want, &got) == NULL) return false;
+		// (out of the whole screen first: SDL changes a window's mode only as it goes in)
+		if (SDL_GetWindowFlags(win) & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_FULLSCREEN_DESKTOP)) SDL_SetWindowFullscreen(win, 0);
+		if (SDL_SetWindowDisplayMode(win, &got) != 0) return false;
+		return SDL_SetWindowFullscreen(win, SDL_WINDOW_FULLSCREEN) == 0;
+	});
+	// setTextureQuality(level): 0 the maps whole, 1 half each way, 2 a quarter each way - a machine short of video
+	// memory. What is loaded from then on (SceneRenderer::SetTextureMipSkip).
+	lua.set_function("setTextureQuality", [](const int level) { SceneRenderer::SetTextureMipSkip((uint32)std::max(0, std::min(4, level))); });
+	lua.set_function("getTextureQuality", []() { return (int)SceneRenderer::GetTextureMipSkip(); });
+	// saveScreenshot(path): the next frame shown, written there as a PNG - a game's photo mode. False where the device
+	// cannot read its screen back.
+	lua.set_function("saveScreenshot", [this](const std::string &path) {
+		return GetDevice() != NULL && GetDevice()->RequestScreenshot(path);
+	});
+	// timeStamp(): the computer's date and time now as "20261118_143005" - a name for a file made now (a saved picture)
+	lua.set_function("timeStamp", []() {
+		const std::time_t now = std::time(NULL);
+		std::tm tmv{};
+#ifdef _WIN32
+		localtime_s(&tmv, &now);
+#else
+		localtime_r(&now, &tmv);
+#endif
+		char buf[32];
+		std::strftime(buf, sizeof(buf), "%Y%m%d_%H%M%S", &tmv);
+		return std::string(buf);
 	});
 	// The developer console runs what it does not know as Lua, in the game's own state: an
 	// expression's value is shown (2 + 2 -> 4), a statement is run.
@@ -539,9 +651,13 @@ end
 	}
 	// Settings that outlive the game: a folder of this player's own, per game.
 	{
-		const std::string title = PlayerManifestInstance().title.empty() ? std::string("Game") : PlayerManifestInstance().title;
+		const PlayerManifest &pm = PlayerManifestInstance();
+		const std::string title = !pm.saveFolder.empty() ? pm.saveFolder : (pm.title.empty() ? std::string("Game") : pm.title);
 		char* pref = SDL_GetPrefPath("Pyros3D", title.c_str());
-		GenerateStoreBindings(&lua, pref ? std::string(pref) : std::string("."));
+		// (tests: PYROS_STORE_DIR - a folder of the run's own, so several runs side by side do not share one debug.json)
+		const char* storeEnv = getenv("PYROS_STORE_DIR");
+		const std::string storeDir = (storeEnv && *storeEnv) ? (std::string(storeEnv) + (storeEnv[strlen(storeEnv) - 1] == '/' ? "" : "/")) : (pref ? std::string(pref) : std::string("."));
+		GenerateStoreBindings(&lua, storeDir);
 		// The on-screen controls' layout: the player's own (kept beside the settings) over the game's.
 		TouchControls &touch = TouchControls::Instance();
 		touch.SetUserLayoutFile((pref ? std::string(pref) : std::string("./")) + "touch_layout.json");
@@ -679,6 +795,13 @@ void PyrosPlayer::OpenLoadingScreen()
 	return;
 #endif
 	std::string text, at;
+	// (the game's look, or the one it set for this load - a circuit's name and picture: LoadingScreen::SetNextLook)
+	LoadingScreen::Look look = m.loadingLook;
+	if (LoadingScreen::HasNextLook())
+	{
+		if (!LoadingScreen::NextTitle().empty()) look.title = LoadingScreen::NextTitle();
+		if (!LoadingScreen::NextImage().empty()) look.image = LoadingScreen::NextImage();
+	}
 	if (!m.loadingScene.empty())
 	{
 		at = ResolvePath(m.loadingScene);
@@ -686,9 +809,29 @@ void PyrosPlayer::OpenLoadingScreen()
 		if (f) { std::stringstream ss; ss << f.rdbuf(); text = ss.str(); }
 		else echo("WARNING: game.json's loading screen " + m.loadingScene + " is not there - showing the default");
 	}
+	// (the game's own screen, with the picture set for this load: its Loading_Image's texture replaced)
+	if (!text.empty() && LoadingScreen::HasNextLook() && !LoadingScreen::NextImage().empty())
+	{
+		try
+		{
+			json doc = json::parse(text);
+			std::function<void(json &)> walk = [&](json &n) {
+				if (n.is_object())
+				{
+					if (n.value("name", std::string()) == "Loading_Image" && n.contains("components"))
+						for (json &c : n["components"]) if (c.value("type", std::string()) == "UIImage") c["texture"] = LoadingScreen::NextImage();
+					for (auto it = n.begin(); it != n.end(); ++it) if (it->is_structured()) walk(*it);
+				}
+				else if (n.is_array()) for (json &e : n) walk(e);
+			};
+			walk(doc);
+			text = doc.dump();
+		}
+		catch (...) {}
+	}
 	if (text.empty())
 	{
-		text = LoadingScreen::DefaultSceneJson(m.loadingLook);
+		text = LoadingScreen::DefaultSceneJson(look);
 		at = ResolvePath("scenes/_loading.json");      // (where its picture's path is read from: the game's folder)
 	}
 	// Between its frames: the window's events kept moving (not handled - nothing of the game's runs
@@ -696,7 +839,7 @@ void PyrosPlayer::OpenLoadingScreen()
 	// And the window's size followed: one resized during the load (a tiling window manager places a new
 	// window seconds after it opens) kept the old swapchain - the screen drawn small in a corner and the
 	// rest of the window magenta. The swapchain is remade now; the game's own targets after the load.
-	loadingScreen.Open(text, at, m.loadingLook, (uint32)Width, (uint32)Height, [this]() {
+	loadingScreen.Open(text, at, look, (uint32)Width, (uint32)Height, [this]() {
 		SDL_PumpEvents(); FrameHeartbeat();
 		int w = 0, h = 0;
 		// (in pixels where SDL can say - 2.26 and later; the Linux CI's is older, and its windows are
@@ -726,6 +869,7 @@ void PyrosPlayer::OpenLoadingScreen()
 
 bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 {
+	sGamePaused = false;                                         // (a new scene starts running, whatever the last one left)
 	// (the last frame's recording, on the render thread, done: loading frees the scene it was drawn from)
 	SceneRenderer::WaitAllIdle();
 	// (a lens over the screen is the scene's that put it there - a scope looked through: not the next scene's)
@@ -1010,6 +1154,9 @@ void PyrosPlayer::UnloadGameScene()
 	// finalizer is freed the cycle after the one that finds it.
 	lua.collect_garbage();
 	lua.collect_garbage();
+	// (PYROS_UNLOAD_LOG: what of the scene left is still held - a script kept alive by something keeps its sounds, and
+	// with them usually everything else it made)
+	if (getenv("PYROS_UNLOAD_LOG")) echo("[unload] sound sources still alive: " + std::to_string(AudioSource::LiveCount()));
 #endif
 }
 
@@ -1217,9 +1364,15 @@ void PyrosPlayer::PushLuaHostGlobals()
 	// Show a 2D scene over whatever is running, and take it down again. The
 	// scene shown is an ordinary scene file - usually one marked twoD - so a
 	// pause menu can also be opened on its own with loadScene().
+	// pauseGame(true): the world stands still - no physics step, so no body, no car moves - while the scripts and the
+	// UI go on (a pause menu, usually an overlay scene, and the script that takes it down). A scene loaded starts unpaused.
+	lua["pauseGame"] = [](const bool on) { sGamePaused = on; };
+	lua["gamePaused"] = []() { return sGamePaused; };
 	lua["showOverlay"] = [this](const std::string& name) { ShowOverlayScene(name); };
 	lua["hideOverlay"] = [this]() { HideOverlayScene(); };
 	lua["overlayScene"] = [this]() { return fs::path(overlaySceneRel).stem().string(); };
+	// (the overlay's own graph, nil when none is up: ui.find(overlayGraph(), "Row0") - the scene's script fills and reads it)
+	lua["overlayGraph"] = [this]() -> SceneGraph* { return overlayScene; };
 	lua["currentScene"] = [this]() { return fs::path(currentSceneRel).stem().string(); };
 	lua["echo"] = [](const std::string& msg) { p3d::LOG::_LOG::_echo(msg); };
 	// A script's own scopes in the frame profile (perf.log, the editor's Profiler):
@@ -1470,15 +1623,22 @@ void PyrosPlayer::Update()
 		ApplyPendingResizeIfAny();
 	}
 
-	const f64 time = GetTime();
-	const f64 dt = GetTimeInterval();
+	// (PYROS_SIM_STEP=<seconds>: a simulation, not a game - every frame that much time, whatever the clock says: a race
+	// run as fast as the machine goes, the same result every run. With PYROS_NO_RENDER=1 nothing is drawn)
+	static const f64 simStep = getenv("PYROS_SIM_STEP") ? atof(getenv("PYROS_SIM_STEP")) : 0.0;
+	static f64 simClock = 0.0;
+	if (simStep > 0.0) simClock += simStep;
+	const f64 time = simStep > 0.0 ? simClock : GetTime();
+	const f64 dt = simStep > 0.0 ? simStep : GetTimeInterval();
 	// The on-screen controls: live while the game holds the pointer; fingers into keys and movement
 	TouchControls::Instance().SetLive(mouseCaptured && sceneLoaded);
 	TouchControls::Instance().Update(Width, Height);
 
 	{
 		PYROS_PROFILE_SCOPE("Player.Physics");
-		physics->Update(dt, 10);
+		if (!sGamePaused) physics->Update(dt, 10);
+		// (a film rendered offline: its sound, this frame's worth - AudioManager::PumpOffline)
+		if (AudioManager* am = AudioManager::GetActive()) am->PumpOffline((f32)dt);
 	}
 	// 2D bodies, after the 3D world and before the scene solves its
 	// transforms - Step() writes positions onto GameObjects and they have to
@@ -1494,7 +1654,7 @@ void PyrosPlayer::Update()
 			physics2D->SetGravity(meta.gravity2D);
 		}
 		physics2D->Sync(scene);
-		physics2D->Step(dt, scene);
+		if (!sGamePaused) physics2D->Step(dt, scene);
 
 	}
 	// After the step, so a frame's shadows match the positions it draws the
@@ -1669,6 +1829,8 @@ void PyrosPlayer::ConfigureRenderer()
 
 void PyrosPlayer::DrawFrame()
 {
+	static const bool noRender = getenv("PYROS_NO_RENDER") != NULL;
+	if (noRender) return;
 	GameObject::TakeDrawTransforms();
 	p3d::View view;
 	// (a scene without a camera - a menu of UI alone - is still drawn: its UI over the default view)

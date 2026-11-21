@@ -102,6 +102,12 @@ namespace p3d {
 		// on the road, a foot on the kerb, a crease in a facade. `length` metres of march (0 off).
 		void SetContactShadows(const f32 length) { contactShadow = length; }
 		f32 GetContactShadows() const { return contactShadow; }
+		// A focus shadow (a sun's): a map of its own, sharp, over a sphere of `radius` metres round `centre` - what the
+		// player follows, a car, a character - on top of the cascades, which spread their texels over hundreds of metres.
+		// Set every frame where the thing is; radius 0 off. (A point, not an object: nothing to outlive.)
+		void SetShadowFocus(const Vec3 &centre, const f32 radius) { focusCentre = centre; focusRadius = radius > 0.f ? radius : 0.f; }
+		const Vec3 &GetShadowFocusCentre() const { return focusCentre; }
+		f32 GetShadowFocusRadius() const { return focusRadius; }
 		// Ray-traced reflections (the deferred renderer, where the device traces rays): a
 		// reflective surface traces its reflection against the same ray scene, out to
 		// `distance` metres, in place of the screen-space march - what is off the screen or
@@ -243,6 +249,7 @@ namespace p3d {
 		Vec4 volumetricTint = Vec4(1.f, 1.f, 1.f, 20.f);
 		bool rayShadows = false;
 		f32 contactShadow = 0.f;
+		Vec3 focusCentre; f32 focusRadius = 0.f;
 		bool rayReflections = false;
 		f32 rayReflectionDistance = 80.f;
 		f32 rayShadowDistance = 150.f, raySoftness = 0.0093f;

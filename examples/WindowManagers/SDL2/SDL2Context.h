@@ -51,6 +51,10 @@ namespace p3d {
             SDL_Window* GetSDLWindow() const { return rview; }
             // The device on the window: NULL when none of those built could be made (the window then shows nothing)
             gfx::Device* GetDevice() const { return device; }
+            // Frames on the display's refresh, or as fast as they are made (as the window starts, unless PYROS_VSYNC=1):
+            // from the next frame - the surface is remade between frames, in GetEvents.
+            void SetVSync(const bool on) { vsyncWanted = on ? 1 : 0; }
+            bool GetVSync() const { return vsyncWanted >= 0 ? vsyncWanted == 1 : (device != NULL && device->VSync()); }
             void HideMouse();
             void ShowMouse();
             void SetMousePosition(const uint32 mouseX, const uint32 mouseY);
@@ -79,6 +83,7 @@ namespace p3d {
             // (a Mac's or an iPhone's: the CAMetalLayer the device draws on, whichever API it is)
             void* metalView = NULL;
             gfx::Device* device = NULL;
+            int vsyncWanted = -1;     // (SetVSync: 1 on, 0 off, -1 nothing asked)
 
             FPS fps;
             FrameClock frameClock;

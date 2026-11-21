@@ -63,6 +63,13 @@ namespace p3d {
 				"getDrawingType", &RenderingMesh::GetDrawingType,
 				"geometry", &RenderingMesh::Geometry,
 				"material", &RenderingMesh::Material,
+				// (another material on the submesh - a generic or a custom one: a car's glass taking the rain's)
+				"setMaterial", [](RenderingMesh &m, const sol::object &o) {
+					std::shared_ptr<IMaterial> mat = LuaObjectToMaterial(o);
+					if (!mat) return false;
+					m.Material = mat;
+					return true;
+				},
 				"getGenericMaterial", &RenderingMesh_GetGenericMaterial,
 				"getCustomMaterial", &RenderingMesh_GetCustomMaterial,
 				"drawingType", &RenderingMesh::drawingType,
@@ -92,6 +99,9 @@ namespace p3d {
 			"setLightColor", &ILightComponent::SetLightColor,
 			"getLightIntensity", &ILightComponent::GetLightIntensity,
 			"setLightIntensity", &ILightComponent::SetLightIntensity,
+			"setVolumetricScattering", &ILightComponent::SetVolumetricScattering,
+			"getVolumetricScattering", &ILightComponent::GetVolumetricScattering,
+			"setVolumetricAnisotropy", &ILightComponent::SetVolumetricAnisotropy,
 			"getLightType", &ILightComponent::GetLightType,
 			sol::base_classes, sol::bases<IComponent>()
 			);
@@ -124,6 +134,8 @@ namespace p3d {
 		lua->new_usertype<DirectionalLight>("DirectionalLightBase",
 			"setContactShadows", &DirectionalLight::SetContactShadows,
 			"getContactShadows", &DirectionalLight::GetContactShadows,
+			// (a sharp shadow of its own round what the player follows: set every frame where it is; radius 0 off)
+			"setShadowFocus", [](DirectionalLight &l, const Vec3 &centre, const f32 radius) { l.SetShadowFocus(centre, radius); },
 			"getLightDirection", &DirectionalLight::GetLightDirection,
 			// (on a light a scene already has - what getComponent("DirectionalLight")
 			// hands back - as well as on one a script makes)
@@ -193,6 +205,7 @@ namespace p3d {
 				// light:setShadowCascades(2, 60): how many cascades and how far the
 				// shadow reaches, on a light already casting.
 				"setShadowCascades", [](LUA_DirectionalLight &l, const uint32 cascades, const f32 reach) { l.SetShadowCascades(cascades, reach); },
+				"setShadowFocus", [](LUA_DirectionalLight &l, const Vec3 &centre, const f32 radius) { l.SetShadowFocus(centre, radius); },
 				"setShadowCache", [](LUA_DirectionalLight &l, const bool on) { l.SetShadowCache(on); },
 				"setShadowCacheWindFrom", [](LUA_DirectionalLight &l, const int32 cascade) { l.SetShadowCacheWindFrom(cascade); },
 				"setShadowCacheTurn", [](LUA_DirectionalLight &l, const f32 radians) { l.SetShadowCacheTurn(radians); },
@@ -251,6 +264,13 @@ namespace p3d {
 				"setLightColor", &LUA_PointLight::SetLightColor,
 				"getLightIntensity", &LUA_PointLight::GetLightIntensity,
 				"setLightIntensity", &LUA_PointLight::SetLightIntensity,
+				// The beam seen in the air (ILightComponent::SetVolumetricScattering:
+				// 0 none, a hazy room 0.1 to 0.2) and its lobe (Henyey-Greenstein
+				// g: above 0 brighter looked into). Only a scene file could set
+				// them: a light a script makes - a car's headlights - had no beam.
+				"setVolumetricScattering", [](LUA_PointLight &l, float density) { l.SetVolumetricScattering(density); },
+				"getVolumetricScattering", [](LUA_PointLight &l) { return l.GetVolumetricScattering(); },
+				"setVolumetricAnisotropy", [](LUA_PointLight &l, float g) { l.SetVolumetricAnisotropy(g); },
 				"onUpdate", &LUA_PointLight::on_update,
 				"onInit", &LUA_PointLight::on_init,
 				"onDestroy", &LUA_PointLight::on_destroy,
@@ -312,6 +332,17 @@ namespace p3d {
 				"setLightColor", &LUA_SpotLight::SetLightColor,
 				"getLightIntensity", &LUA_SpotLight::GetLightIntensity,
 				"setLightIntensity", &LUA_SpotLight::SetLightIntensity,
+				// The beam seen in the air (ILightComponent::SetVolumetricScattering:
+				// 0 none, a hazy room 0.1 to 0.2) and its lobe (Henyey-Greenstein
+				// g: above 0 brighter looked into). Only a scene file could set
+				// them: a light a script makes - a car's headlights - had no beam.
+				"setVolumetricScattering", [](LUA_SpotLight &l, float density) { l.SetVolumetricScattering(density); },
+				"getVolumetricScattering", [](LUA_SpotLight &l) { return l.GetVolumetricScattering(); },
+				"setVolumetricAnisotropy", [](LUA_SpotLight &l, float g) { l.SetVolumetricAnisotropy(g); },
+				// A lamp that lights the ground under it evenly (SpotLight::SetGroundEven): the sine of the angle under
+				// the horizontal past which its light weakens - a headlamp 0.5 m up, even to 10 m: 0.05.
+				"setGroundEven", [](LUA_SpotLight &l, float sine) { l.SetGroundEven(sine); },
+				"getGroundEven", [](LUA_SpotLight &l) { return l.GetGroundEven(); },
 				"setShadowPCFTexelSize", &LUA_SpotLight::SetShadowPCFTexelSize,
 				// Filter radius and normal-offset bias, both in shadow-map
 				// texels - see ILightComponent::SetShadowSoftness() and
@@ -370,6 +401,7 @@ namespace p3d {
 				"setColor", &GenericShaderMaterial::SetColor,
 				"setColorRGBA", [](GenericShaderMaterial &m, const f32 r, const f32 g, const f32 b, const f32 a) { m.SetColor(Vec4(r, g, b, a)); },
 				"setSpecular", &GenericShaderMaterial::SetSpecular,
+				"setSpecularFactor", &GenericShaderMaterial::SetSpecularFactor,
 				"setColorMap", &GenericShaderMaterial::SetColorMap,
 				"setSpecularMap", &GenericShaderMaterial::SetSpecularMap,
 				"setNormalMap", &GenericShaderMaterial::SetNormalMap,
@@ -393,6 +425,8 @@ namespace p3d {
 				"getEmissionStrength", &GenericShaderMaterial::GetEmissionStrength,
 				"getEmissionColor", [](GenericShaderMaterial &m) { return m.GetEmissionColor(); },
 				"setEmissionMap", &GenericShaderMaterial::SetEmissionMap,
+				// (the maps repeated `scale` times and moved by `offset`: setUVTransform(-1, 1, 1, 0) shows one mirrored)
+				"setUVTransform", [](GenericShaderMaterial &m, f32 sx, f32 sy, sol::optional<f32> ox, sol::optional<f32> oy) { m.SetUVTransform(Vec2(sx, sy), Vec2(ox.value_or(0.f), oy.value_or(0.f))); },
 				"setAlphaCutoff", &GenericShaderMaterial::SetAlphaCutoff,
 				// (an octahedral impostor's numbers - ShaderUsage.Impostor: the grid's side, the baked thing's radius, its centre's height)
 				"setImpostor", &GenericShaderMaterial::SetImpostor,
@@ -402,7 +436,9 @@ namespace p3d {
 				"setWind", sol::overload(
 					[](GenericShaderMaterial &m, f32 strength) { m.SetWind(strength); },
 					[](GenericShaderMaterial &m, f32 strength, f32 rate) { m.SetWind(strength, rate); },
-					[](GenericShaderMaterial &m, f32 strength, f32 rate, f32 freq) { m.SetWind(strength, rate, freq); }),
+					[](GenericShaderMaterial &m, f32 strength, f32 rate, f32 freq) { m.SetWind(strength, rate, freq); },
+					// (skyLean: the normal leaned to the sky for lighting - leaves and grass lit as the ground is)
+					[](GenericShaderMaterial &m, f32 strength, f32 rate, f32 freq, f32 skyLean) { m.SetWind(strength, rate, freq, skyLean); }),
 				"getWind", &GenericShaderMaterial::GetWind,
 				sol::base_classes, sol::bases<IMaterial>()
 				);
@@ -500,6 +536,8 @@ namespace p3d {
 			"setReflections", [](SceneView &v, bool on) { v.SetFollow(nullptr); v.Renderer().SetReflections(on); },
 			"setAutoExposure", [](SceneView &v, bool on, sol::optional<f32> ev) { v.SetFollow(nullptr); v.Renderer().SetAutoExposure(on, ev.value_or(0.f)); },
 			"setTemporalAA", [](SceneView &v, bool on) { v.Renderer().SetTemporalAA(on); },
+			// (renderer:prepareMeshes(scene, ms): the scene's two-sided meshes worked out ahead, for every view - how many are left)
+			"prepareMeshes", [](SceneView &, SceneGraph* scene, sol::optional<f64> ms) { return (int)SceneRenderer::PrepareMeshes(scene, ms.value_or(4.0)); },
 			"setTransparentBackground", [](SceneView &v, bool on) { v.SetTransparentBackground(on); },
 			"enableLOD", [](SceneView &v) { v.SetFollow(nullptr); v.Renderer().SetLOD(true); },
 			"disableLOD", [](SceneView &v) { v.SetFollow(nullptr); v.Renderer().SetLOD(false); },

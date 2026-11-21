@@ -246,10 +246,15 @@ namespace p3d {
 		// Lit by the scene (SetLit), and how much of the light it scatters onward
 		bool IsLit() const { return lit; }
 		f32 GetForwardScatter() const { return forwardScatter; }
+		// How much of the point and spot lights a lit system takes (1 all; rain falling through a car's own beams a trace of
+		// it - lit whole it fell as sparks; a spray a share - lit whole it showed only in the headlights, blinding there)
+		void SetLocalLightGain(const f32 gain) { localLightGain = gain < 0.f ? 0.f : gain; }
+		f32 GetLocalLightGain() const { return localLightGain; }
 
 	private:
 		bool lit = false;
 		f32 forwardScatter = 0.6f;
+		f32 localLightGain = 1.f;
 
 		// Reads the owner's CURRENT world position as the spawn origin -
 		// note SceneGraph::Update()'s per-object call order means this can

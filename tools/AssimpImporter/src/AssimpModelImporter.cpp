@@ -287,7 +287,7 @@ namespace p3d {
 		pendingEmbedded.clear();
 
 		// Load Model
-		const unsigned int flags = aiProcessPreset_TargetRealtime_Fast | aiProcess_OptimizeMeshes | aiProcess_JoinIdenticalVertices | aiProcess_LimitBoneWeights | aiProcess_FlipUVs | aiProcess_CalcTangentSpace;
+		const unsigned int flags = aiProcessPreset_TargetRealtime_Fast | aiProcess_OptimizeMeshes | aiProcess_JoinIdenticalVertices | aiProcess_LimitBoneWeights | aiProcess_FlipUVs | aiProcess_CalcTangentSpace | aiProcess_TransformUVCoords;     // (TransformUVCoords: glTF KHR_texture_transform - a texture repeated N times across a surface, not stretched once)
 		assimp_model = Importer.ReadFile(Filename.c_str(), flags);
 
 		if (!assimp_model)
@@ -558,6 +558,13 @@ namespace p3d {
 				f32 value = 1.0f;
 				pMaterial->Get(AI_MATKEY_OPACITY, value);
 				material.Opacity = value;
+				// glTF's alphaMode BLEND: see-through by its texture's alpha (a decal, a rubber mark, glass) even at a
+				// factor of 1 - said by an opacity a hair under 1, which is what the engine blends by
+				{
+					aiString mode;
+					if (pMaterial->Get("$mat.gltf.alphaMode", 0, 0, mode) == AI_SUCCESS && std::string(mode.C_Str()) == "BLEND")
+						material.Opacity = std::min(material.Opacity, 0.998f);
+				}
 
 				value = 0.0f;
 				pMaterial->Get(AI_MATKEY_SHININESS, value);
@@ -587,6 +594,12 @@ namespace p3d {
 
 				// Bump Map
 				texFound = assimp_model->mMaterials[i]->GetTexture(aiTextureType_NORMALS, 0, &path);
+				// (a glTF normal map at strength 0 is switched off: a car's paint flakes, tiled 128 times on its second
+				// UV set - applied anyway, with the first set's UVs, the body looked dented)
+				ai_real normalStrength = 1;
+				if (texFound == AI_SUCCESS && assimp_model->mMaterials[i]->Get("$tex.scale", aiTextureType_NORMALS, 0, normalStrength) == AI_SUCCESS
+					&& normalStrength < 0.01f)
+					texFound = aiReturn_FAILURE;
 				if (texFound == AI_SUCCESS)
 				{
 					material.haveNormalMap = true;

@@ -42,6 +42,8 @@ void main()
 		vec3 d = vec3(cos(phi) * r, y, sin(phi) * r);
 		vec2 uv = SkyViewUV(d, sunDir);
 		vec3 L = textureLod(sampler2D(uSkyView, uLinearClamp), vec2(uv.x, 1.0 - uv.y), 0.0).rgb;     // (absolute radiance)
+		// (under an overcast deck the light all round is the deck's, white - not the clear sky's blue above it)
+		L = mix(L, DeckLight(zenith), uFrame.cloudLight.w);
 		L = mix(L, groundL, smoothstep(0.0, -0.1, d.y));
 		sum += L * SHBasis(k, d);
 	}

@@ -350,6 +350,13 @@ namespace p3d { namespace gfx {
 		virtual void Present() = 0;
 		// The window's new size in pixels: the backbuffer is that size from the next frame on (between frames)
 		virtual void ResizeSurface(uint32_t width, uint32_t height) = 0;
+		// Frames shown on the display's refresh (on), or as fast as they are made (off: whole frames still where the
+		// surface has a way - Vulkan's mailbox). Between frames, as ResizeSurface.
+		virtual void SetVSync(bool on) { (void)on; }
+		virtual bool VSync() const { return true; }
+		// The next frame shown, written to `path` as a PNG - as it is on the screen (a game's photo mode). From any
+		// thread; false where the device has no way to read its screen back.
+		virtual bool RequestScreenshot(const std::string &path) { (void)path; return false; }
 		virtual void EndFrame() = 0;
 		virtual double GpuMilliseconds(QueryPool pool, uint32_t from, uint32_t to) = 0;   // last finished frame
 		virtual const FrameStats &LastFrameStats() = 0;    // counters of the last frame begun, GPU times of the newest finished

@@ -34,6 +34,11 @@ layout(location = 2) out vec2 vTexcoord;
 layout(location = 3) out vec4 vTint;
 layout(location = 9) out float vFade;     // (an instance dissolving - thinned, or past its fade: alphacut.frag)
 layout(location = 10) out float vLodCode;     // (and its level's crossfade, per instance: instance_cull.comp)
+// (the same place to the bit in every pipeline this stage is in: an alpha-cut surface is drawn twice - its cut, depth
+// alone, then its light at equal depth (SceneRenderer::SurfacePipeline) - and a driver that compiles the stage anew with
+// each pipeline's fragment stage (NVIDIA's, on Vulkan) need not round the two alike without this: the light then missed
+// its own depth on a scatter of pixels that changed with the view - trees that flickered)
+invariant gl_Position;
 #ifdef IMPOSTOR
 // An octahedral impostor (ShaderUsage::Impostor - uvTransform: x the tree's radius, y its centre's height above its foot,
 // z the grid's side): the quad turned to face the eye in the tree's own frame and sized to it; the fragment stage gets

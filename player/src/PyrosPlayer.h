@@ -70,6 +70,7 @@ struct PlayerManifest
 	nlohmann::json quality;   // (the engine's part applied by shared/QualitySettings.h - the editor's Play calls the same)
 	float qFrameLimit = -2.f;      // ("frameRateLimit")
 	std::string title = "Pyros3D";
+	std::string saveFolder;                 // game.json "saveFolder": where its saves live (its title when empty)
 	std::string startupScene;              // project-relative, e.g. "scenes/Level1.json"
 	std::string touchControls;             // ("touchControls": the game's layout of on-screen controls, project-relative - TouchControls)
 	std::string serverPublicKey;           // pinned when joining with --connect; empty = any server

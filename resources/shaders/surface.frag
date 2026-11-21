@@ -262,7 +262,17 @@ vec3 SkyReflection(vec3 d, float roughness)
 {
 	vec2 uv = SkyViewUV(d, normalize(uFrame.skySun.xyz));
 	vec3 sharp = textureLod(sampler2D(uSkyView, uLinearClamp), vec2(uv.x, 1.0 - uv.y), 0.0).rgb;
-	return mix(sharp, SkyRadiance(d), smoothstep(0.08, 0.55, roughness));
+	vec3 L = mix(sharp, SkyRadiance(d), smoothstep(0.08, 0.55, roughness));
+	// (under an overcast deck the sky a wet road mirrors is the deck - grey - not the clear sky above it: a day of rain
+	// had a road of pale blue puddles)
+	if (uFrame.cloudLight.w > 0.0)
+	{
+		vec2 up = SkyViewUV(vec3(0.0, 1.0, 0.0), normalize(uFrame.skySun.xyz));
+		// (every way, not only up: the wet road's bumps and a slope bend its reflections below the horizon, and there the
+		// clear sky's pale blue lay over the asphalt like a film of water - "more when on slope")
+		L = mix(L, DeckLight(textureLod(sampler2D(uSkyView, uLinearClamp), vec2(up.x, 1.0 - up.y), 0.0).rgb), uFrame.cloudLight.w);
+	}
+	return L;
 }
 layout(set = 1, binding = 11) uniform texture2D uAO;       // (half resolution, GTAO)
 layout(set = 1, binding = 19) uniform texture2D uProbeAtlas;     // (the reflection probes' pictures: SceneRenderer's probe atlas)

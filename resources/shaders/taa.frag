@@ -17,7 +17,8 @@ layout(set = 1, binding = 5, std140) uniform TaaData
 	vec4 params;                     // x: 1 where last frame's result can be used, y: how much of this frame goes in; zw: this
 	                                 // frame's jitter (uv) - where it drew a point; with fewer pixels drawn than resolved (a render
 	                                 // scale), the frame is read there, between its pixels
-	vec4 reactive;                   // x: 1 the full-size particle layer drawn this frame, y: the half-size one
+	vec4 reactive;                   // x: 1 the full-size particle layer drawn this frame, y: the half-size one; z: a 60 Hz frame's
+	                                 // time over this one's (0: taken as 1)
 } uTaa;
 layout(set = 1, binding = 6) uniform texture2D uVelocity;     // (the prepass's: each surface's move on screen; 1e4 where none was drawn)
 // The particles' layers (premultiplied: rgb their light, a their cover) - full size and half: where they are, this frame
@@ -108,7 +109,9 @@ void main()
 	// pixel; the sharp fetch's ringing below black is caught where it is turned back, Unweigh)
 	history = ClipToBox(history, mean - 1.25 * sigma, mean + 1.25 * sigma);
 	// (more of this frame where things move fast: their history is resampled every frame, and softens)
-	float speed = length((vUV - prev) * vec2(outSize));
+	// (in pixels per 60th of a second, not per frame: at 144 fps a pan moved under half as far each frame and read as still -
+	// the history clung, then let go: the picture advanced unevenly, a judder over the whole view, the sky most)
+	float speed = length((vUV - prev) * vec2(outSize)) * (uTaa.reactive.z > 0.0 ? uTaa.reactive.z : 1.0);
 	float blend = mix(uTaa.params.y, 0.35, clamp(speed / 12.0, 0.0, 1.0));
 	// (where particles are: this frame's - by how much of the pixel they make, their cover or their light)
 	float reactive = 0.0;

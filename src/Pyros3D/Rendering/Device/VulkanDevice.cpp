@@ -224,7 +224,8 @@ namespace p3d { namespace gfx {
 			VkInstance instance = VK_NULL_HANDLE; VkPhysicalDevice phys = VK_NULL_HANDLE; VkDevice device = VK_NULL_HANDLE;
 			VkQueue queue = VK_NULL_HANDLE; uint32_t family = 0; VkSurfaceKHR surface = VK_NULL_HANDLE;
 			VmaAllocator vma = nullptr;
-			BufferRec shotBuffer; uint32_t shotW = 0, shotH = 0; bool shotWritten = false;     // (PYROS_SHOT)
+			BufferRec shotBuffer; uint32_t shotW = 0, shotH = 0; bool shotWritten = false; std::string shotName;
+			std::mutex shotMutex; std::string shotRequest;     // (RequestScreenshot: a game's own picture)     // (PYROS_SHOT)
 			uint32_t stagedUploads = 0;     // (this frame's: Upload into memory the CPU cannot see)
 			VkSwapchainKHR swapchain = VK_NULL_HANDLE; VkFormat swapFormat = VK_FORMAT_B8G8R8A8_SRGB; VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
 			std::mutex shaderNamesMutex; std::unordered_map<VkShaderModule, std::string> shaderNames;
@@ -239,6 +240,7 @@ namespace p3d { namespace gfx {
 			float OutputHeadroom() const override { return hdrOutput ? DisplayHeadroom() : 1.f; }
 			std::vector<uint32_t> swapTextures; std::vector<VkSemaphore> renderDone;
 			uint32_t width = 0, height = 0, imageIndex = 0; bool vsync = true, haveImage = false;
+			bool swapchainStale = false;     // (the window's images out of date: made again before the next frame takes one)
 			// (NVIDIA's checkpoints: each pass marked in the command stream, so a lost device says which pass it was in)
 			bool nvCheckpoints = false; std::mutex checkpointMutex; std::set<std::string> checkpointNames;
 			const char* CheckpointName(const char* n) { std::lock_guard<std::mutex> l(checkpointMutex); return checkpointNames.insert(n ? n : "pass").first->c_str(); }
@@ -347,6 +349,9 @@ namespace p3d { namespace gfx {
 			Texture AcquireBackbuffer() override;
 			void Present() override;
 			void ResizeSurface(uint32_t w, uint32_t h) override { if (w == width && h == height) return; width = w; height = h; vkDeviceWaitIdle(device); CreateSwapchain(); }
+			void SetVSync(bool on) override { if (on == vsync) return; vsync = on; vkDeviceWaitIdle(device); CreateSwapchain(); }
+			bool VSync() const override { return vsync; }
+			bool RequestScreenshot(const std::string &path) override { std::lock_guard<std::mutex> lk(shotMutex); shotRequest = path; return true; }
 			void EndFrame() override { Flush(); }
 			double GpuMilliseconds(QueryPool, uint32_t, uint32_t) override { return 0.0; }
 			const FrameStats &LastFrameStats() override;
@@ -663,6 +668,17 @@ namespace p3d { namespace gfx {
 			// when MoltenVK starts: set before the loader, and only where the user has not set it)
 			setenv("MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS", "0", 0);
 #endif
+#ifdef _WIN32
+			// (RivaTuner's overlay - MSI Afterburner's - hooks Vulkan through an implicit layer, and its hook crashed the
+			// game inside the driver at present: told to stay out before the loader looks for layers. The loader skips
+			// any layer named in VK_LOADER_LAYERS_DISABLE, and RTSS's own manifest disables it on DISABLE_RTSS_LAYER.
+			// A player who sets either himself keeps his choice)
+			if (!getenv("PYROS_ALLOW_RTSS"))
+			{
+				if (!getenv("VK_LOADER_LAYERS_DISABLE")) _putenv_s("VK_LOADER_LAYERS_DISABLE", "*RTSS*");
+				if (!getenv("DISABLE_RTSS_LAYER")) _putenv_s("DISABLE_RTSS_LAYER", "1");
+			}
+#endif
 			if (volkInitialize() != VK_SUCCESS) { fprintf(stderr, "Vulkan: no loader\n"); return false; }
 			std::vector<const char*> ext = { VK_KHR_SURFACE_EXTENSION_NAME };
 			VkInstanceCreateFlags flags = 0;
@@ -917,10 +933,12 @@ namespace p3d { namespace gfx {
 			ci.imageFormat = chosen.format; ci.imageColorSpace = chosen.colorSpace; ci.imageExtent = ext; ci.imageArrayLayers = 1;
 			ci.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;     // (copied from: a test's capture)
 			ci.preTransform = sc.currentTransform; ci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR; ci.presentMode = presentMode; ci.clipped = VK_TRUE;
-			ci.oldSwapchain = swapchain;
+			// (the old images let go of first, and not handed on as oldSwapchain: overlay layers - RivaTuner's - crashed in
+			// the driver presenting after a swapchain made from a retired one; the GPU idle before any of it)
+			if (swapchain) { vkDeviceWaitIdle(device); for (uint32_t t : swapTextures) Destroy(Texture{ t }); for (VkSemaphore s : renderDone) vkDestroySemaphore(device, s, nullptr); vkDestroySwapchainKHR(device, swapchain, nullptr); swapchain = VK_NULL_HANDLE; swapTextures.clear(); renderDone.clear(); }
+			ci.oldSwapchain = VK_NULL_HANDLE;
 			VkSwapchainKHR fresh = VK_NULL_HANDLE;
 			if (vkCreateSwapchainKHR(device, &ci, nullptr, &fresh) != VK_SUCCESS) { fprintf(stderr, "Vulkan: no swapchain\n"); return false; }
-			if (swapchain) { vkDeviceWaitIdle(device); for (uint32_t t : swapTextures) Destroy(Texture{ t }); for (VkSemaphore s : renderDone) vkDestroySemaphore(device, s, nullptr); vkDestroySwapchainKHR(device, swapchain, nullptr); }
 			swapchain = fresh; swapTextures.clear(); renderDone.clear();
 			uint32_t in = 0; vkGetSwapchainImagesKHR(device, swapchain, &in, nullptr);
 			std::vector<VkImage> imgs(in); vkGetSwapchainImagesKHR(device, swapchain, &in, imgs.data());
@@ -935,7 +953,8 @@ namespace p3d { namespace gfx {
 				VkSemaphoreCreateInfo si = {}; si.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO; VkSemaphore sem; vkCreateSemaphore(device, &si, nullptr, &sem); renderDone.push_back(sem);
 			}
 			std::string pm = presentMode == VK_PRESENT_MODE_IMMEDIATE_KHR ? ", present immediate" : presentMode == VK_PRESENT_MODE_MAILBOX_KHR ? ", present mailbox" : ", present fifo (vsync)";
-			if (caps.name.find(", present") == std::string::npos) caps.name += pm;
+			// (the device's name says how it presents now: SetVSync changes it)
+			{ const size_t at = caps.name.find(", present"); if (at != std::string::npos) caps.name.erase(at); caps.name += pm; }
 			return true;
 		}
 
@@ -1702,8 +1721,17 @@ namespace p3d { namespace gfx {
 			{
 				VkCommandBuffer cmd = FrameCommandBuffer();
 				TextureRec &back = *textures.Get(swapTextures[imageIndex]);
-				if (frameNumber == ShotFrame() && !shotBuffer.buffer && getenv("PYROS_SHOT"))
+				// (PYROS_SHOT_COUNT=n / PYROS_SHOT_EVERY=k: n frames from it on, every k-th - <file>_1.png ... - as Metal's)
+				static const uint64_t shotCount = getenv("PYROS_SHOT_COUNT") ? std::max<uint64_t>(1, (uint64_t)atoll(getenv("PYROS_SHOT_COUNT"))) : 1;
+				static const uint64_t shotEvery = getenv("PYROS_SHOT_EVERY") ? std::max<uint64_t>(1, (uint64_t)atoll(getenv("PYROS_SHOT_EVERY"))) : 1;
+				// (or a picture the game asked for - RequestScreenshot: this frame, under the name it gave)
+				std::string asked;
+				{ std::lock_guard<std::mutex> lk(shotMutex); asked.swap(shotRequest); }
+				const bool shotNow = !asked.empty() || (getenv("PYROS_SHOT") && frameNumber >= ShotFrame() && frameNumber < ShotFrame() + shotCount * shotEvery && (frameNumber - ShotFrame()) % shotEvery == 0);
+				if (shotNow && !shotBuffer.buffer)
 				{
+					shotName = asked.empty() ? getenv("PYROS_SHOT") : asked;
+					if (asked.empty() && shotCount > 1) { const size_t dot = shotName.rfind('.'); shotName = (dot == std::string::npos ? shotName : shotName.substr(0, dot)) + "_" + std::to_string((frameNumber - ShotFrame()) / shotEvery + 1) + ".png"; }
 					shotW = back.desc.width; shotH = back.desc.height;
 					VkBufferCreateInfo bi = {}; bi.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO; bi.size = (VkDeviceSize)shotW * shotH * (hdrOutput ? 8 : 4); bi.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 					VmaAllocationCreateInfo ac = {}; ac.usage = VMA_MEMORY_USAGE_AUTO; ac.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
@@ -1742,8 +1770,10 @@ namespace p3d { namespace gfx {
 				const bool bgra = swapFormat == VK_FORMAT_B8G8R8A8_SRGB || swapFormat == VK_FORMAT_B8G8R8A8_UNORM;
 				if (hdrOutput) HalfToSrgb8((const uint16_t*)p, px.data(), (size_t)shotW * shotH);     // (half floats: written as SDR)
 				else for (size_t k = 0; k < (size_t)shotW * shotH; k++) { px[k * 4] = bgra ? p[k * 4 + 2] : p[k * 4]; px[k * 4 + 1] = p[k * 4 + 1]; px[k * 4 + 2] = bgra ? p[k * 4] : p[k * 4 + 2]; px[k * 4 + 3] = 255; }
-				WritePng(getenv("PYROS_SHOT"), px.data(), shotW, shotH);
-				shotWritten = true;
+				WritePng(shotName.c_str(), px.data(), shotW, shotH);
+				// (the next of a series: its own buffer again)
+				vmaDestroyBuffer(vma, shotBuffer.buffer, shotBuffer.alloc); shotBuffer = BufferRec();
+				shotWritten = false;
 			}
 		}
 
@@ -1898,6 +1928,8 @@ namespace p3d { namespace gfx {
 		{
 			// (one a frame: a second pass over it - an editor's panels over its views - draws on the same, what it holds kept)
 			if (haveImage) { Texture h; h.id = swapTextures[imageIndex]; return h; }
+			// (out of date since the last present: made again here, at a frame's start, nothing of the old in hand)
+			if (swapchainStale) { swapchainStale = false; if (!CreateSwapchain()) { fprintf(stderr, "Vulkan: the window's images could not be made again\n"); return Texture(); } }
 			Frame &f = frames[frame];
 			const std::chrono::steady_clock::time_point a0 = std::chrono::steady_clock::now();
 			VkResult r = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, f.acquired, VK_NULL_HANDLE, &imageIndex);
@@ -1928,7 +1960,7 @@ namespace p3d { namespace gfx {
 				FrameProfiler::NoteDisplayWait(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - p0).count());
 			}
 			Check(r, "presenting");
-			if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) CreateSwapchain();
+			if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) swapchainStale = true;     // (made again before the next acquire)
 			haveImage = false;
 			// (new pipelines written out, once none is being built - looked at every few seconds)
 			if (++cacheFrames >= 300)

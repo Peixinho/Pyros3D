@@ -86,7 +86,11 @@ namespace p3d {
 		// editor left Play until the collector got to it.
 		// Returns how many were still sounding.
 		static uint32 StopAll();
+		// How many sources exist (a scene's, left behind by a script that is still held, show here after it is unloaded)
+		static uint32 LiveCount();
 		bool IsPlaying() const;
+		// Where in the sound playback is, seconds (-1: not loaded) - a film's pictures kept to its soundtrack
+		f64 GetTime() const;
 
 		void SetLooping(const bool looping);
 		bool IsLooping() const { return looping; }
@@ -233,8 +237,13 @@ namespace p3d {
 
 		virtual uint32 GetComponentType() const { return ComponentType::AudioSource; }
 
-		virtual void Register(SceneGraph* Scene) {}
-		virtual void Unregister(SceneGraph* Scene) {}
+		// A source sounds for as long as what it is on is in a scene. Taken out - the object removed, its scene
+		// unloaded - it falls silent there and then, and goes on from the same place if it is put back. (A script
+		// still holding the source kept it sounding until Lua collected it, which may be never: the pause menu's
+		// music went on under the main menu's, the same tune twice, four seconds apart.) A source on nothing, or
+		// on an object never put in a scene, is its holder's to stop.
+		virtual void Register(SceneGraph* Scene);
+		virtual void Unregister(SceneGraph* Scene);
 		virtual void Init() {}
 		virtual void Destroy() {}
 		// The one real hook: pushes the owner's world position and forward
@@ -277,6 +286,7 @@ namespace p3d {
 		Vec3 lastPosition;
 		f64 lastUpdateTime;
 		bool hasLastUpdate;
+		bool leftSounding = false;      // (was playing when taken out of its scene: goes on if put back)
 
 		// Owns the filter/EQ/delay node-graph wiring - see
 		// AudioEffectChain.h. Allocated unconditionally in the constructor

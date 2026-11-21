@@ -547,23 +547,24 @@ namespace p3d {
 		c.known.erase(netId);
 	}
 
-	void NetworkSession::Rpc(const PeerId target, const std::string &name, const std::vector<NetValue> &args)
+	void NetworkSession::Rpc(const PeerId target, const std::string &name, const std::vector<NetValue> &args, const bool reliable)
 	{
 		NetWriter w;
 		w.U8(Msg::Rpc);
 		w.String(name);
 		w.VarU32((uint32)args.size());
 		for (size_t i = 0; i < args.size(); i++) WriteValue(w, args[i]);
-		if (role == Client) SendSecure(1, NetChannel::Reliable, w.data.data(), w.Size());
+		const uint32 channel = reliable ? NetChannel::Reliable : NetChannel::Unsequenced;
+		if (role == Client) SendSecure(1, channel, w.data.data(), w.Size());
 		else if (role == Server)
 		{
 			if (target == 0)
 			{
 				// Players only: a connection still saying hello is not one.
 				for (std::map<PeerId, std::unique_ptr<ClientState> >::iterator c = clients.begin(); c != clients.end(); ++c)
-					if (c->second->welcomed) SendSecure(c->first, NetChannel::Reliable, w.data.data(), w.Size());
+					if (c->second->welcomed) SendSecure(c->first, channel, w.data.data(), w.Size());
 			}
-			else SendSecure(target, NetChannel::Reliable, w.data.data(), w.Size());
+			else SendSecure(target, channel, w.data.data(), w.Size());
 		}
 	}
 

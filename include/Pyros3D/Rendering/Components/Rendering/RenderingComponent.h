@@ -211,17 +211,22 @@ namespace p3d {
 			if (Geometry->materialProperties.haveSpecular) genMat->SetSpecular(Geometry->materialProperties.Specular);
 			// Always apply - `if (Opacity)` skipped 0 (intentional fade) and
 			// relied on IMaterial's default, which used to be uninitialised.
-			genMat->SetOpacity(Geometry->materialProperties.Opacity);
+			// (a cut-out - its _cut map - is solid where it is drawn: 1, so the renderer keeps it with the opaque things,
+			// depth-written; the file's BLEND marking put trees in the unsorted see-through pass - far ones over near)
+			genMat->SetOpacity(cutMap.empty() ? Geometry->materialProperties.Opacity : 1.f);
 			// A material imported as less than solid is drawn that way. The
 			// opacity was read from the file and handed to the shader, but
 			// the material stayed in the opaque pass with blending off, so
 			// glass came out as a painted panel.
-			if (Geometry->materialProperties.Opacity < 0.999f)
+			if (Geometry->materialProperties.Opacity < 0.999f && cutMap.empty())     // (a cut-out map: cut, not blended)
 			{
 				genMat->EnableBlending();
 				genMat->BlendingEquation(BlendEq::Add);
 				genMat->BlendingFunction(BlendFunc::Src_Alpha, BlendFunc::One_Minus_Src_Alpha);
 				genMat->SetTransparencyFlag(true);
+				// (and writes no depth: a blended surface's own triangles hid what is behind its neighbours - a see-through
+				// fence drew darker triangles over the bank behind it, in the order they were drawn)
+				genMat->DisableDepthWrite();
 			}
 			if (Geometry->materialProperties.haveColorMap)
 			{

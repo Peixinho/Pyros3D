@@ -14,6 +14,7 @@
 #include <Pyros3D/Core/Projection/Projection.h>
 #include <Pyros3D/Other/Export.h>
 #include <memory>
+#include <functional>
 
 namespace p3d {
 
@@ -191,6 +192,50 @@ namespace p3d {
 		virtual void SetLinearDamping(IPhysicsComponent* pcomp, const f32 damping) {}
 		virtual void SetAngularDamping(IPhysicsComponent* pcomp, const f32 damping) {}
 		virtual void SetGravityScale(IPhysicsComponent* pcomp, const f32 scale) {}
+
+		// Step rate. The world steps at a fixed rate (60 Hz unless asked) and
+		// catches up with as many steps as a frame needs, capped by time (the
+		// cap of MaxPhysicsCatchUpSteps() 60 Hz steps), not by count. A car on
+		// stiff springs and tyres wants 300-500 Hz; a crate is happy at 60.
+		virtual void SetStepRate(const f32 hz) {}
+		// The fastest any body may move (m/s). Box3D's world is capped at 40 so a
+		// pile of crates can't tunnel through a wall; a racing car needs 100+.
+		virtual void SetMaximumLinearSpeed(const f32 metresPerSecond) {}
+		virtual f32 GetMaximumLinearSpeed() const { return 40.f; }
+		virtual f32 GetStepRate() const { return 60.f; }
+
+		// Called before every fixed step with that step's dt, on the thread
+		// that steps the world. Forces applied from inside one (ApplyForceAtPoint,
+		// ApplyCentralForce, ApplyTorque) act on THAT step only, instead of being
+		// spread over the frame's steps as they are from game code. Returns an id
+		// for RemoveStepCallback.
+		virtual uint32 AddStepCallback(const std::function<void(f32)> &fn) { return 0; }
+		virtual void RemoveStepCallback(const uint32 id) {}
+
+		// The ray of RayCast, passing through every shape of `ignore`'s body
+		// (a wheel feeling for the road from inside its own car).
+		virtual RayCastHit RayCastIgnoring(const Vec3 &from, const Vec3 &to, IPhysicsComponent* ignore) { return RayCast(from, to); }
+		// The closest hit on a body `accept` says yes to (everything else is passed through).
+		virtual RayCastHit RayCastFiltered(const Vec3 &from, const Vec3 &to, const std::function<bool(IPhysicsComponent*)> &accept) { return RayCast(from, to); }
+
+		// A dynamic body's mass, centre of mass (body space) and principal
+		// moments of inertia (about the centre of mass, body axes): a car is not
+		// the uniform box its collision shape would make it.
+		virtual void SetMassProperties(IPhysicsComponent* pcomp, const f32 mass, const Vec3 &localCenter, const Vec3 &inertia) {}
+		virtual void ApplyTorque(IPhysicsComponent* pcomp, const Vec3 &torque) {}
+
+		// A body's state as the solver has it NOW (not the drawn, interpolated
+		// pose of GetBodyPosition/Rotation): for code running in a step callback.
+		// Velocity is the centre of mass's; com is the world centre of mass.
+		struct BodyState { Vec3 position, linearVelocity, angularVelocity, com; Quaternion rotation; bool valid = false; };
+		virtual BodyState GetBodyState(IPhysicsComponent* pcomp) { return BodyState(); }
+
+		// Surface friction/restitution of every shape of a body.
+		virtual void SetFriction(IPhysicsComponent* pcomp, const f32 friction) {}
+		// What a body is (category bits) and what it touches (mask bits): two touch where each is in the other's
+		// mask. Everything starts as category 1, touching all - a car kept off the cones a script throws out of its way
+		virtual void SetCollisionBits(IPhysicsComponent* pcomp, const uint32 category, const uint32 mask) {}
+		virtual void SetRestitution(IPhysicsComponent* pcomp, const f32 restitution) {}
 
 	protected:
 

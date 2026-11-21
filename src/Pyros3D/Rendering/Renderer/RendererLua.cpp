@@ -12,6 +12,7 @@
 #include <Pyros3D/Rendering/ShaderGlobals.h>
 #include <Pyros3D/Rendering/GI/SceneGI.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
+#include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
 
 namespace p3d {
 
@@ -28,9 +29,16 @@ namespace p3d {
 			"deactivateCulling", [](SceneRenderer &r) { r.SetFrustumCulling(false); },
 			"setSky", [](SceneRenderer &r, bool on) { r.SetSky(on); },
 			"setHaze", [](SceneRenderer &r, float density) { r.SetHaze(density); },
+			// (renderer:prepareMeshes(scene, ms): the scene's two-sided meshes worked out ahead, for every view - how many are left)
+			"prepareMeshes", [](SceneRenderer &, SceneGraph* scene, sol::optional<f64> ms) { return (int)SceneRenderer::PrepareMeshes(scene, ms.value_or(4.0)); },
+			// (a game's grass and plants: how far they reach and how many of them, 1 and 1 as authored - a settings menu)
+			"setFoliageQuality", [](SceneRenderer &, float reach, float amount) { FoliageComponent::SetQuality(reach, amount); },
 			"setReflections", [](SceneRenderer &r, bool on, sol::optional<float> reach) { r.SetReflections(on, reach.value_or(150.f)); },
 			"setClouds", [](SceneRenderer &r, float cover, sol::optional<int> steps, sol::optional<float> shadow) { r.SetClouds(cover, (uint32)steps.value_or(40), shadow.value_or(0.45f)); },
 			"setAutoExposure", [](SceneRenderer &r, bool on, sol::optional<f32> ev) { r.SetAutoExposure(on, ev.value_or(0.f)); },
+			// setExposureMeterFrom(metres): the auto exposure meters only what is that far and further - a cabin's view (0: all)
+			"setExposureMeterFrom", [](SceneRenderer &r, f32 metres) { r.SetExposureMeterFrom(metres); },
+			"setKeepPicture", [](SceneRenderer &r, bool on) { r.SetKeepPicture(on); },
 			// The lens and shutter: setSunShafts(strength), setDepthOfField(focus, range, blur) - blur 0 off - setMotionBlur(shutter)
 			"setSunShafts", [](SceneRenderer &r, f32 strength) { r.SetSunShafts(strength); },
 			"setDepthOfField", [](SceneRenderer &r, f32 focus, f32 range, f32 blur) { r.SetDepthOfField(focus, range, blur); },

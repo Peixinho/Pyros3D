@@ -358,6 +358,40 @@ namespace p3d {
 		static void SetJoypadConnected(const uint32 joypadID, const bool connected, const std::string &name);
 		static void AddMouseDelta(const f32 dx, const f32 dy);
 
+		// --- joysticks, raw: wheels, pedals, shifters, handbrakes, button boxes ---
+		// Every joystick SDL sees (gamepads too), in eight slots, with its own
+		// axes/buttons/hats as the device numbers them - no GameController
+		// layout, which knows nothing of a wheel base or a pedal set. An axis is
+		// -1..1 as the device reports it (a pedal usually rests at -1 or +1:
+		// calibrate in the game). Force feedback: a constant force -1..1 the game
+		// sets every frame; the window manager plays it on the device.
+		static const uint32 MaxJoysticks = 8;
+		static const uint32 MaxJoystickAxes = 16;
+		static const uint32 MaxJoystickButtons = 128;
+		static const uint32 MaxJoystickHats = 4;
+		static bool IsJoystickConnected(const uint32 id);
+		static const std::string &GetJoystickName(const uint32 id);
+		static const std::string &GetJoystickGUID(const uint32 id);
+		static uint32 GetJoystickAxisCount(const uint32 id);
+		static uint32 GetJoystickButtonCount(const uint32 id);
+		static uint32 GetJoystickHatCount(const uint32 id);
+		static f32 GetJoystickAxis(const uint32 id, const uint32 axis);
+		static bool IsJoystickButtonDown(const uint32 id, const uint32 button);
+		// SDL's hat bits: 1 up, 2 right, 4 down, 8 left (0 centred)
+		static uint32 GetJoystickHat(const uint32 id, const uint32 hat);
+		static bool JoystickHasForceFeedback(const uint32 id);
+		// -1..1; positive turns the wheel the way its axis reads positive (most
+		// wheels: right) - a device that does it the other way is the game's
+		// "invert" setting. Held until set again; 0 when the game stops.
+		static void SetJoystickForce(const uint32 id, const f32 force);
+		static f32 GetJoystickForce(const uint32 id);
+		// The window manager's side.
+		static void SetJoystickConnected(const uint32 id, const bool connected, const std::string &name, const std::string &guid,
+			const uint32 axes, const uint32 buttons, const uint32 hats, const bool forceFeedback);
+		static void SetJoystickAxis(const uint32 id, const uint32 axis, const f32 value);
+		static void SetJoystickButton(const uint32 id, const uint32 button, const bool down);
+		static void SetJoystickHat(const uint32 id, const uint32 hat, const uint32 value);
+
 		// --- touches -----------------------------------------------------------
 		// Every finger on the screen, each with a number that is its own
 		// from the moment it comes down until it is lifted. A game on a

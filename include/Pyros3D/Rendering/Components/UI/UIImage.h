@@ -38,6 +38,12 @@ namespace p3d {
 		// OpenGL) - v is turned over so it still shows the right way up.
 		void Rebuild(const f32 width, const f32 height, const Vec2 &pivot,
 			const Vec4 &border, const Vec2 &textureSize, const bool flipV = false);
+
+		// Only `amount` (0..1) of a sweep round the rect's centre: a fan from the centre to the rect's edge, from
+		// `originDeg` (0 to the right, 90 up), `sweepDeg` long, clockwise or not - the picture under it cut exactly
+		// there (its corners kept). A dial's arc, a countdown's pie.
+		void RebuildRadial(const f32 width, const f32 height, const Vec2 &pivot,
+			const f32 amount, const f32 originDeg, const f32 sweepDeg, const bool clockwise);
 	};
 
 	class PYROS3D_API UIImage : public RenderingComponent {
@@ -80,6 +86,18 @@ namespace p3d {
 
 		// Called by UICanvas once its layout pass has solved this element's
 		// rect. Rebuilds the mesh only when the size actually changed.
+		// Radial fill: the image shown over `amount` (0..1) of a sweep round its centre - from `originDeg` (0 to the
+		// right, 90 up), `sweepDeg` long, clockwise or not (a gauge's arc: 225, 270, clockwise). Off by default; the
+		// whole image then.
+		void SetRadialFill(const f32 amount, const f32 originDeg = 90.f, const f32 sweepDeg = 360.f, const bool clockwise = true);
+		void SetFillAmount(const f32 amount);
+		void ClearFill();
+		bool HasRadialFill() const { return radial; }
+		f32 GetFillAmount() const { return fillAmount; }
+		f32 GetFillOrigin() const { return fillOrigin; }
+		f32 GetFillSweep() const { return fillSweep; }
+		bool GetFillClockwise() const { return fillClockwise; }
+
 		void OnRectSolved(const UIRectValue &rect, const Vec2 &pivot);
 
 		// One 1x1 opaque white texture shared by every untextured image.
@@ -94,6 +112,11 @@ namespace p3d {
 
 		// What the mesh currently reflects, so a canvas solving every frame
 		// doesn't rebuild vertex buffers every frame.
+		bool radial;
+		f32 fillAmount, fillOrigin, fillSweep;
+		bool fillClockwise;
+		f32 builtFill;
+
 		f32 builtWidth, builtHeight;
 		Vec2 builtPivot;
 		Vec4 builtBorder;

@@ -54,6 +54,15 @@ namespace p3d {
 
 		void EnableCastShadows(const uint32 Width, const uint32 Height, const f32 Near = 0.1f);
 
+		// A lamp made to light the ground it stands over evenly - a car's headlamp, a street lamp's head: what it
+		// throws downward grows weaker the steeper the ray, by the cube of the sine of its angle under the
+		// horizontal past this one. A plain cone lights the ground by height / distance^3: white at the lamp's foot
+		// and nothing a few metres on. With it the ground is lit alike from the lamp's foot out to where the ray at
+		// this angle lands (height / tan), and as a plain cone's from there on; what stands up in the beam - a wall,
+		// a car - is lit as before. The sine of the angle (0.05: a lamp 0.5 m up, even to 10 m); 0: a plain cone.
+		void SetGroundEven(const f32 sine) { groundEven = sine < 0.f ? 0.f : (sine > 0.45f ? 0.45f : sine); }
+		f32 GetGroundEven() const { return groundEven; }
+
 	protected:
 
 		// Light Direction
@@ -62,6 +71,7 @@ namespace p3d {
 		f32 outterCone, CosOutterCone, innerCone, CosInnerCone;
 		// Attenuation
 		f32 Radius;
+		f32 groundEven = 0.f;
 
 	};
 

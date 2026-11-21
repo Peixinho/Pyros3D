@@ -51,6 +51,15 @@ namespace p3d {
 
 		// The engine's own screen, with a look in it.
 		static std::string DefaultSceneJson(const Look &look);
+		// The look of the next load's screen, set by the game before it loads a scene (Lua setLoadingScreen(title, image)):
+		// a racing game's circuit, its name and its picture, in place of the game's one look. Kept until set again or
+		// cleared; empty fields keep the game's own.
+		static void SetNextLook(const std::string &title, const std::string &image) { NextTitle() = title; NextImage() = image; NextSet() = true; }
+		static void ClearNextLook() { NextSet() = false; NextTitle().clear(); NextImage().clear(); }
+		static bool HasNextLook() { return NextSet(); }
+		static std::string &NextTitle() { static std::string s; return s; }
+		static std::string &NextImage() { static std::string s; return s; }
+		static bool &NextSet() { static bool b = false; return b; }
 
 		LoadingScreen();
 		~LoadingScreen();

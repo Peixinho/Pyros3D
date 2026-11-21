@@ -218,10 +218,15 @@ namespace p3d {
     {
         // (pads: opened here, the first time, rather than with the window - its own SDL subsystem)
         PyrosGamepad::Init();
+        PyrosJoystick::Init();
+        // (the force feedback the game asked for last frame goes out first)
+        PyrosJoystick::Pump();
         SDL_Event sdl_event;
         InputManager::BeginTouchFrame();
         while (SDL_PollEvent(&sdl_event) > 0)
         {
+            if (PyrosJoystick::HandleEvent(sdl_event))
+                continue;
             if (PyrosGamepad::HandleEvent(sdl_event,
                 [this](p3d::uint32 pad, p3d::uint32 b) { SetJoypadButtonPressed(pad, b); },
                 [this](p3d::uint32 pad, p3d::uint32 b) { SetJoypadButtonReleased(pad, b); },
@@ -308,6 +313,8 @@ namespace p3d {
         DrawableSize(w, h);
         if (w > 0 && h > 0 && ((uint32)w != Width || (uint32)h != Height))
             OnResize((uint32)w, (uint32)h);
+        // (SetVSync: here, between frames, as a resize - the device makes its surface again)
+        if (vsyncWanted >= 0 && device != NULL) { device->SetVSync(vsyncWanted == 1); vsyncWanted = -1; }
 
         frameClock.Tick((f64)SDL_GetPerformanceCounter() / (f64)SDL_GetPerformanceFrequency());
         SetTime(frameClock.Seconds() * 1000.0);

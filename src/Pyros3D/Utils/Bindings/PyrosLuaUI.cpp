@@ -86,6 +86,36 @@ namespace p3d {
 			return NULL;
 		}
 
+		// A whole canvas shown or hidden - the game's HUD while a replay plays,
+		// say. Its elements keep what each was given (hidden ones stay hidden
+		// when it comes back), which ui.setVisible on every one of them would
+		// not; and ui.find never answers the canvas itself. The scene is walked
+		// rather than the registered canvases: those leave out a hidden one.
+		bool UI_SetCanvasVisible(SceneGraph* scene, const std::string &name, const bool visible)
+		{
+			if (!scene) return false;
+			struct Walk {
+				static UICanvas* In(GameObject* node, const std::string &name)
+				{
+					if (!node) return NULL;
+					if (node->GetName() == name)
+						if (UICanvas* c = FindComponent<UICanvas>(node, ComponentType::UICanvas)) return c;
+					const std::vector<std::shared_ptr<GameObject> > &kids = node->GetChildren();
+					for (size_t i = 0; i < kids.size(); i++)
+						if (UICanvas* found = In(kids[i].get(), name)) return found;
+					return NULL;
+				}
+			};
+			const std::vector<std::shared_ptr<GameObject> > roots = scene->GetAllGameObjectList();
+			for (size_t i = 0; i < roots.size(); i++)
+				if (UICanvas* c = Walk::In(roots[i].get(), name))
+				{
+					if (visible) c->Enable(); else c->Disable();
+					return true;
+				}
+			return false;
+		}
+
 		void UI_SetText(GameObject* go, const std::string &text)
 		{
 			if (UIText* t = FindComponent<UIText>(go, ComponentType::UIText)) t->SetText(text);
@@ -146,6 +176,20 @@ namespace p3d {
 			if (!r) return;
 			const f32 f = fraction < 0.f ? 0.f : (fraction > 1.f ? 1.f : fraction);
 			r->SetAnchors(r->GetAnchorMin(), Vec2(f, r->GetAnchorMax().y));
+		}
+
+		// An image shown over only part of a sweep round its centre (a dial's arc): amount 0..1, from originDeg (0 to the
+		// right, 90 up), sweepDeg long, clockwise - the last three kept from the call before when not given.
+		void UI_SetRadialFill(GameObject* go, const f32 amount, sol::optional<f32> origin, sol::optional<f32> sweep, sol::optional<bool> clockwise)
+		{
+			UIImage* img = FindComponent<UIImage>(go, ComponentType::UIImage);
+			if (!img) return;
+			if (!origin && !sweep && !clockwise && img->HasRadialFill()) { img->SetFillAmount(amount); return; }
+			img->SetRadialFill(amount, origin ? *origin : img->GetFillOrigin(), sweep ? *sweep : img->GetFillSweep(), clockwise ? *clockwise : img->GetFillClockwise());
+		}
+		void UI_ClearFill(GameObject* go)
+		{
+			if (UIImage* img = FindComponent<UIImage>(go, ComponentType::UIImage)) img->ClearFill();
 		}
 
 		// Where the element sits against its anchors: the same four numbers the
@@ -455,7 +499,10 @@ namespace p3d {
 			return im ? im->GetTint() : Vec4(1.f, 1.f, 1.f, 1.f);
 		});
 		ui.set_function("setVisible", &UI_SetVisible);
+		ui.set_function("setCanvasVisible", &UI_SetCanvasVisible);
 		ui.set_function("setFill", &UI_SetFill);
+		ui.set_function("setRadialFill", &UI_SetRadialFill);
+		ui.set_function("clearFill", &UI_ClearFill);
 		ui.set_function("getOffsets", &UI_GetOffsets);
 		ui.set_function("setOffsets", &UI_SetOffsets);
 		ui.set_function("setInteractable", &UI_SetInteractable);

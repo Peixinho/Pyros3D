@@ -10,6 +10,9 @@
 #include <Pyros3D/Audio/AudioBus.h>
 #include "AudioReverb.h"
 #include <cstdio>
+#include <algorithm>
+#include <cmath>
+#include <vector>
 #include <cstdlib>
 #include "AudioEar.h"
 #include <Pyros3D/GameObjects/GameObject.h>
@@ -92,6 +95,13 @@ namespace p3d {
 		// would just be guessing on the user's behalf.
 		ma_engine_config config = ma_engine_config_init();
 		config.dataCallback = LimitedDataCallback;      // the mix, limited - see above
+		// (offline: no device - the game pulls the mix itself, PumpOffline)
+		if (const char* off = getenv("PYROS_AUDIO_OFFLINE"))
+			if (off[0] != 0 && (offlineOut = fopen(off, "wb")) != NULL)
+			{
+				config.noDevice = MA_TRUE; config.channels = 2; config.sampleRate = 48000;
+				fprintf(stderr, "AudioManager: offline - the mix to %s, float32, 2 channels, 48000 Hz\n", off);
+			}
 		if (ma_engine_init(&config, engine) != MA_SUCCESS)
 		{
 			// A machine with no output device is a completely normal thing to
@@ -111,6 +121,32 @@ namespace p3d {
 		// GetActive() returning non-NULL is what tells Sound/AudioSource that
 		// a manager *exists*; they each re-check IsInitialized() themselves.
 		activeManager = this;
+	}
+
+	void AudioManager::PumpOffline(const f32 seconds)
+	{
+		if (!offlineOut || !initialized || seconds <= 0.f) return;
+		offlineOwed += (f64)seconds * 48000.0;
+		ma_uint64 frames = (ma_uint64)offlineOwed;
+		offlineOwed -= (f64)frames;
+		static std::vector<f32> buf;
+		while (frames > 0)
+		{
+			const ma_uint64 n = frames > 4096 ? 4096 : frames;
+			buf.assign((size_t)n * 2, 0.f);
+			ma_engine_read_pcm_frames(engine, buf.data(), n, NULL);
+			// (the device's limiter, as LimitedDataCallback has it)
+			const f32 ceiling = 0.92f, release = 1.f / (0.3f * 48000.f);
+			for (ma_uint64 f = 0; f < n; f++)
+			{
+				const f32 a = std::max(std::fabs(buf[f * 2]), std::fabs(buf[f * 2 + 1]));
+				if (a * offlineGain > ceiling) offlineGain = ceiling / a; else offlineGain += (1.f - offlineGain) * release;
+				buf[f * 2] *= offlineGain; buf[f * 2 + 1] *= offlineGain;
+			}
+			fwrite(buf.data(), sizeof(f32), (size_t)n * 2, offlineOut);
+			frames -= n;
+		}
+		fflush(offlineOut);
 	}
 
 	std::shared_ptr<AudioBus> AudioManager::GetWorldBus()

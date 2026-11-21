@@ -154,6 +154,11 @@ namespace p3d
 		const ShaderOptions &GetOptions() const { return shaderID; }
 		const Vec4 &GetColor() const { return Kd; }
 		const Vec4 &GetSpecular() const { return Ks; }
+		// glTF's KHR_materials_specular specularFactor: the share of the usual 4 % reflection at normal incidence a
+		// dielectric has (1 as it is; 0 none - a model made with no reflections looks as it was made)
+		void SetSpecularFactor(const f32 f) { SpecularFactor = f < 0.f ? 0.f : f; }
+		f32 GetSpecularFactor() const { return SpecularFactor; }
+		f32 SpecularFactor = 1.f;
 		const f32 &GetDisplacementHeight() const { return displacementHeight; }
 		const f32 &GetReflectivity() const { return Reflectivity; }
 		const f32 &GetShininess() const { return Shininess; }

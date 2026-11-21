@@ -18,7 +18,11 @@ vec3 TransmittanceAt()
 void main()
 {
 	vec2 ndc = vec2(vUV.x * 2.0 - 1.0, 1.0 - vUV.y * 2.0);
-	vec4 far = uSky.inverseViewProjection * vec4(ndc, 0.5, 1.0);
+	// (a point far along the ray - depth 1e-4 is ~500 m out in this reversed depth - not 0.5, ~10 cm from the eye: that point
+	// less the eye lost most of its precision to the eye's distance from the origin, and every sub-millimetre move of a car's
+	// camera turned each cloud ray a fraction of a pixel another way - the clouds shook in a race, still in the menus and
+	// in pause, where the camera is still. The blue sky's smooth gradient hid the same error)
+	vec4 far = uSky.inverseViewProjection * vec4(ndc, 1e-4, 1.0);
 	vec3 dir = normalize(far.xyz / far.w - uFrame.cameraPosition.xyz);
 	vec3 sunDir = normalize(uFrame.skySun.xyz);
 	vec3 E = uFrame.sunRadiance.rgb;     // (the sun's illuminance, already through the air - as the surfaces get it)
@@ -48,6 +52,15 @@ void main()
 		L += M * night * 0.06 * pow(max(m, 0.0), 300.0);                         // (and the glow round it)
 	}
 	// The clouds in front of it all (and of the sun)
+	// (an overcast deck goes on past where the clouds are marched to: what is behind them is more of it - not the
+	// clear sky, which stood as a pale blue band along the horizon of a day of rain, and in every wet road. Whether or not
+	// the clouds themselves are drawn yet - their pipeline still being made, or not made on some driver: a day of rain
+	// under a clear blue sky, the ambient grey and the sky blue)
+	if (uFrame.cloudLight.w > 0.0)
+	{
+		vec2 up = SkyViewUV(vec3(0.0, 1.0, 0.0), sunDir);
+		L = mix(L, DeckLight(texture(sampler2D(uSkyView, uLinearClamp), vec2(up.x, 1.0 - up.y)).rgb), uFrame.cloudLight.w);
+	}
 	if (uSky.clouds.x > 0.0)
 	{
 		vec4 cl = textureLod(sampler2D(uClouds, uLinearClamp), gl_FragCoord.xy * uFrame.viewport.zw, 0.0);

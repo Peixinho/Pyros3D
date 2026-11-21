@@ -1,3 +1,4 @@
+#include <Pyros3D/Physics/Vehicle/VehicleSim.h>
 #include <tuple>
 //============================================================================
 // Name        : PyrosLuaPhysics.cpp
@@ -40,6 +41,9 @@ namespace p3d {
 			// that direction is not expressible as three Euler angles
 			// without a lossy round trip.
 			"setRotationQuat", &IPhysicsComponent::SetRotationQuat,
+			// (the name of the object it is on: what a ray's hit tells a script it found - the hit is a new value each
+			// time, no use as a key)
+			"getOwnerName", [](IPhysicsComponent &c) { return c.GetOwner() ? c.GetOwner()->GetName() : std::string(); },
 			"cleanForces", &IPhysicsComponent::CleanForces,
 			"setAngularVelocity", &IPhysicsComponent::SetAngularVelocity,
 			"setLinearVelocity", &IPhysicsComponent::SetLinearVelocity,
@@ -574,8 +578,11 @@ namespace p3d {
 
 	}
 
+	void RegisterLuaVehicle(sol::state* lua);
+
 	void RegisterLuaPhysicsLate(sol::state* lua)
 	{
+		RegisterLuaVehicle(lua);
 		{
 			// IPhysics
 			lua->new_usertype<IPhysics>("IPhysics",
@@ -705,6 +712,26 @@ namespace p3d {
 					return p.CreateVehicle(chassis);
 				},
 				"addWheel", &IPhysics::AddWheel,
+				// Step rate (Hz) of the fixed physics step: a car wants 300-500.
+				"setStepRate", &IPhysics::SetStepRate,
+				"getStepRate", &IPhysics::GetStepRate,
+				"setMaximumLinearSpeed", &IPhysics::SetMaximumLinearSpeed,
+				"getMaximumLinearSpeed", &IPhysics::GetMaximumLinearSpeed,
+				// mass, centre of mass (body space) and principal moments of inertia
+				"setMassProperties", [](IPhysics &p, const std::shared_ptr<IPhysicsComponent> &b, const f32 mass, const Vec3 &centre, const Vec3 &inertia) {
+					p.SetMassProperties(b.get(), mass, centre, inertia);
+				},
+				"setFriction", [](IPhysics &p, const std::shared_ptr<IPhysicsComponent> &b, const f32 f) { p.SetFriction(b.get(), f); },
+				// (category, mask: two bodies touch where each is in the other's mask - IPhysics::SetCollisionBits)
+				"setCollisionBits", [](IPhysics &p, const std::shared_ptr<IPhysicsComponent> &b, const double cat, const double mask) { p.SetCollisionBits(b.get(), (uint32)cat, (uint32)mask); },
+				"setRestitution", [](IPhysics &p, const std::shared_ptr<IPhysicsComponent> &b, const f32 r) { p.SetRestitution(b.get(), r); },
+				"applyTorque", [](IPhysics &p, const std::shared_ptr<IPhysicsComponent> &b, const Vec3 &t) { p.ApplyTorque(b.get(), t); },
+				// rayCast passing through one body's shapes (its own car):
+				//   local hit, distance, px, py, pz, nx, ny, nz = physics:rayCastIgnoring(body, x0, y0, z0, x1, y1, z1)
+				"rayCastIgnoring", [](IPhysics &world, const std::shared_ptr<IPhysicsComponent> &ignore, const f32 x0, const f32 y0, const f32 z0, const f32 x1, const f32 y1, const f32 z1) {
+					const RayCastHit h = world.RayCastIgnoring(Vec3(x0, y0, z0), Vec3(x1, y1, z1), ignore.get());
+					return std::make_tuple(h.hasHit, h.distance, h.point.x, h.point.y, h.point.z, h.normal.x, h.normal.y, h.normal.z);
+				},
 				"createTriangleMesh", sol::overload(
 					&IPhysics_CreateTriangleMesh,
 					&IPhysics_CreateTriangleMeshRCOMP
@@ -726,6 +753,187 @@ namespace p3d {
 			(*lua)["BulletPhysics"] = (*lua)["Box3DPhysics"];
 		}
 
+	}
+
+	// ---- VehicleSim (Physics/Vehicle/VehicleSim.h) ----
+	namespace {
+		void ReadNum(const sol::table &t, const char* k, f32 &out) { sol::optional<f32> v = t[k]; if (v) out = *v; }
+		void ReadInt(const sol::table &t, const char* k, int &out) { sol::optional<int> v = t[k]; if (v) out = *v; }
+		void ReadBool(const sol::table &t, const char* k, bool &out) { sol::optional<bool> v = t[k]; if (v) out = *v; }
+		bool ReadVec3(const sol::object &o, Vec3 &out)
+		{
+			if (o.is<Vec3>()) { out = o.as<Vec3>(); return true; }
+			if (o.get_type() == sol::type::table)
+			{
+				sol::table t = o.as<sol::table>();
+				out = Vec3(t.get_or(1, out.x), t.get_or(2, out.y), t.get_or(3, out.z));
+				return true;
+			}
+			return false;
+		}
+		void ReadList(const sol::table &t, const char* k, std::vector<f32> &out)
+		{
+			sol::optional<sol::table> l = t[k];
+			if (!l) return;
+			out.clear();
+			for (size_t i = 1; i <= l->size(); i++) out.push_back(l->get<f32>(i));
+		}
+		void ReadAxle(const sol::table &t, VehicleAxle &a)
+		{
+			ReadNum(t, "springRate", a.springRate); ReadNum(t, "bumpDamping", a.bumpDamping); ReadNum(t, "reboundDamping", a.reboundDamping);
+			ReadNum(t, "fastBumpDamping", a.fastBumpDamping); ReadNum(t, "fastReboundDamping", a.fastReboundDamping); ReadNum(t, "damperKnee", a.damperKnee);
+			ReadNum(t, "bumpTravel", a.bumpTravel); ReadNum(t, "droopTravel", a.droopTravel); ReadNum(t, "bumpStopRate", a.bumpStopRate);
+			ReadNum(t, "bumpStopGap", a.bumpStopGap); ReadNum(t, "antiRollRate", a.antiRollRate); ReadNum(t, "rollCentreHeight", a.rollCentreHeight);
+			ReadNum(t, "brakeTorque", a.brakeTorque); ReadNum(t, "mechanicalTrail", a.mechanicalTrail); ReadNum(t, "casterJack", a.casterJack); ReadNum(t, "kpiJack", a.kpiJack); ReadNum(t, "unsprungMass", a.unsprungMass);
+			ReadBool(t, "driven", a.driven); ReadBool(t, "steered", a.steered);
+		}
+		void ReadTyre(const sol::table &t, VehicleTyre &y)
+		{
+			ReadNum(t, "radius", y.radius); ReadNum(t, "width", y.width); ReadNum(t, "inertia", y.inertia); ReadNum(t, "friction", y.friction);
+			ReadNum(t, "nominalLoad", y.nominalLoad); ReadNum(t, "loadSensitivity", y.loadSensitivity); ReadNum(t, "peakSlipAngle", y.peakSlipAngle);
+			ReadNum(t, "peakSlipRatio", y.peakSlipRatio); ReadNum(t, "shapeLateral", y.shapeLateral); ReadNum(t, "shapeLongitudinal", y.shapeLongitudinal);
+			ReadNum(t, "longitudinalFriction", y.longitudinalFriction); ReadNum(t, "relaxationLateral", y.relaxationLateral);
+			ReadNum(t, "relaxationLongitudinal", y.relaxationLongitudinal); ReadNum(t, "rollingResistance", y.rollingResistance);
+			ReadNum(t, "pneumaticTrail", y.pneumaticTrail); ReadNum(t, "verticalStiffness", y.verticalStiffness); ReadNum(t, "verticalDamping", y.verticalDamping);
+			ReadNum(t, "optimumTemperature", y.optimumTemperature); ReadNum(t, "temperatureWindow", y.temperatureWindow);
+			ReadNum(t, "temperatureGripLoss", y.temperatureGripLoss); ReadNum(t, "startTemperature", y.startTemperature);
+			ReadNum(t, "ambientTemperature", y.ambientTemperature); ReadNum(t, "trackTemperature", y.trackTemperature);
+			ReadNum(t, "heatShare", y.heatShare); ReadNum(t, "surfaceCapacity", y.surfaceCapacity); ReadNum(t, "coreCapacity", y.coreCapacity);
+			ReadNum(t, "hotWindowFactor", y.hotWindowFactor); ReadNum(t, "peakGripFactor", y.peakGripFactor);
+		}
+		VehicleConfig ReadVehicleConfig(const sol::table &t)
+		{
+			VehicleConfig c;
+			ReadNum(t, "mass", c.mass);
+			ReadVec3(t["centreOfMass"], c.centreOfMass);
+			ReadVec3(t["inertia"], c.inertia);
+			sol::optional<sol::table> wl = t["wheels"];
+			if (wl) for (int i = 0; i < 4; i++) ReadVec3((*wl)[i + 1], c.wheels[i]);
+			sol::optional<sol::table> f = t["front"]; if (f) ReadAxle(*f, c.front);
+			sol::optional<sol::table> r = t["rear"]; if (r) ReadAxle(*r, c.rear);
+			sol::optional<sol::table> ft = t["frontTyre"]; if (ft) ReadTyre(*ft, c.frontTyre);
+			sol::optional<sol::table> rt = t["rearTyre"]; if (rt) ReadTyre(*rt, c.rearTyre);
+			sol::optional<sol::table> e = t["engine"];
+			if (e)
+			{
+				ReadList(*e, "torqueRpm", c.engine.torqueRpm); ReadList(*e, "torqueNm", c.engine.torqueNm);
+				ReadNum(*e, "inertia", c.engine.inertia); ReadNum(*e, "idleRpm", c.engine.idleRpm); ReadNum(*e, "limiterRpm", c.engine.limiterRpm);
+				ReadNum(*e, "stallRpm", c.engine.stallRpm); ReadNum(*e, "frictionTorque", c.engine.frictionTorque); ReadNum(*e, "frictionPerRpm", c.engine.frictionPerRpm);
+			}
+			sol::optional<sol::table> d = t["drivetrain"];
+			if (d)
+			{
+				ReadList(*d, "gears", c.drivetrain.gears); ReadNum(*d, "reverse", c.drivetrain.reverse); ReadNum(*d, "finalDrive", c.drivetrain.finalDrive);
+				ReadNum(*d, "efficiency", c.drivetrain.efficiency); ReadNum(*d, "clutchTorque", c.drivetrain.clutchTorque);
+				ReadNum(*d, "shiftUpTime", c.drivetrain.shiftUpTime); ReadNum(*d, "shiftDownTime", c.drivetrain.shiftDownTime);
+				ReadNum(*d, "diffPreload", c.drivetrain.diffPreload); ReadNum(*d, "diffPowerRamp", c.drivetrain.diffPowerRamp);
+				ReadNum(*d, "diffCoastRamp", c.drivetrain.diffCoastRamp); ReadNum(*d, "launchRpm", c.drivetrain.launchRpm);
+			}
+			sol::optional<sol::table> a = t["aero"];
+			if (a)
+			{
+				ReadNum(*a, "dragArea", c.aero.dragArea); ReadNum(*a, "liftArea", c.aero.liftArea); ReadNum(*a, "frontShare", c.aero.frontShare);
+				ReadNum(*a, "airDensity", c.aero.airDensity); ReadNum(*a, "centreHeight", c.aero.centreHeight);
+			}
+			ReadNum(t, "steeringLock", c.steeringLock); ReadNum(t, "steeringWheelLock", c.steeringWheelLock); ReadNum(t, "ackermann", c.ackermann);
+			ReadNum(t, "brakeBias", c.brakeBias); ReadInt(t, "absLevel", c.absLevel); ReadInt(t, "tcLevel", c.tcLevel);
+			ReadNum(t, "tcLowSpeed", c.tcLowSpeed); ReadNum(t, "tcFloor", c.tcFloor); ReadNum(t, "tcCutRate", c.tcCutRate); ReadNum(t, "tcRecoverRate", c.tcRecoverRate);
+			ReadNum(t, "brakeRise", c.brakeRise); ReadNum(t, "absMinFactor", c.absMinFactor); ReadNum(t, "absResponse", c.absResponse);
+			ReadNum(t, "absSlipBase", c.absSlipBase); ReadNum(t, "absSlipPerLevel", c.absSlipPerLevel);
+			ReadNum(t, "absMinSpeed", c.absMinSpeed);
+			ReadNum(t, "ffbFullTorque", c.ffbFullTorque); ReadNum(t, "ffbRoadFeel", c.ffbRoadFeel); ReadNum(t, "ffbRumbleMaxHz", c.ffbRumbleMaxHz); ReadInt(t, "substeps", c.substeps);
+			return c;
+		}
+		VehicleSurface ReadSurface(const sol::table &t)
+		{
+			VehicleSurface s;
+			ReadNum(t, "grip", s.grip); ReadNum(t, "rollingResistance", s.rollingResistance); ReadNum(t, "drag", s.drag);
+			ReadNum(t, "bumpAmplitude", s.bumpAmplitude); ReadNum(t, "bumpWavelength", s.bumpWavelength);
+			ReadNum(t, "ffbRumble", s.ffbRumble); ReadNum(t, "ffbRumbleWavelength", s.ffbRumbleWavelength);
+			int id = 0; ReadInt(t, "id", id); s.id = (uint32)id;
+			return s;
+		}
+		// The sim lives in a holder so a script can destroy() it before the physics world goes.
+		struct LuaVehicle { std::unique_ptr<VehicleSim> sim; };
+		VehicleSim* Sim(LuaVehicle &v) { return v.sim.get(); }
+	}
+
+	void RegisterLuaVehicle(sol::state* lua)
+	{
+		// A racing-sim car on a physics body (see VehicleSim.h for every field):
+		//   physics:setStepRate(400)
+		//   local car = VehicleSim.new(physics, body, { mass = 1300, wheels = {...}, front = {...}, ... })
+		//   car:setInputs(steer, throttle, brake, clutch)   each frame
+		//   local t = car:telemetry()                        speed, rpm, gear, ffb, ...
+		//   local susp, steer, spin = car:wheelPose(0)       wheels 0-3: FL FR RL RR
+		//   car:destroy()                                    before the world ends
+		lua->new_usertype<LuaVehicle>("VehicleSim",
+			sol::no_constructor,
+			"new", [](IPhysics* physics, const std::shared_ptr<IPhysicsComponent> &body, sol::optional<sol::table> cfg) {
+				std::shared_ptr<LuaVehicle> v = std::make_shared<LuaVehicle>();
+				v->sim.reset(new VehicleSim(physics, body, cfg ? ReadVehicleConfig(*cfg) : VehicleConfig()));
+				return v;
+			},
+			"destroy", [](LuaVehicle &v) { v.sim.reset(); },
+			"setInputs", [](LuaVehicle &v, f32 s, f32 t, f32 b, sol::optional<f32> c) { if (Sim(v)) Sim(v)->SetInputs(s, t, b, c ? *c : 0.f); },
+			"setSteeringWheelAngle", [](LuaVehicle &v, f32 a) { if (Sim(v)) Sim(v)->SetSteeringWheelAngle(a); },
+			"shiftUp", [](LuaVehicle &v) { if (Sim(v)) Sim(v)->ShiftUp(); },
+			"shiftDown", [](LuaVehicle &v) { if (Sim(v)) Sim(v)->ShiftDown(); },
+			"setGear", [](LuaVehicle &v, int g) { if (Sim(v)) Sim(v)->SetGear(g); },
+			"setAutoClutch", [](LuaVehicle &v, bool on) { if (Sim(v)) Sim(v)->SetAutoClutch(on); },
+			"setAutoBlip", [](LuaVehicle &v, bool on) { if (Sim(v)) Sim(v)->SetAutoBlip(on); },
+			"setABS", [](LuaVehicle &v, int l) { if (Sim(v)) Sim(v)->SetABS(l); },
+			"setTC", [](LuaVehicle &v, int l) { if (Sim(v)) Sim(v)->SetTC(l); },
+			"setBrakeBias", [](LuaVehicle &v, f32 b) { if (Sim(v)) Sim(v)->SetBrakeBias(b); },
+			"setIgnition", [](LuaVehicle &v, bool on) { if (Sim(v)) Sim(v)->SetIgnition(on); },
+			"setEngineRunning", [](LuaVehicle &v, bool on) { if (Sim(v)) Sim(v)->SetEngineRunning(on); },
+			"setSurface", [](LuaVehicle &v, const std::shared_ptr<IPhysicsComponent> &body, const sol::table &t) { if (Sim(v)) Sim(v)->SetSurface(body.get(), ReadSurface(t)); },
+			"setDefaultSurface", [](LuaVehicle &v, const sol::table &t) { if (Sim(v)) Sim(v)->SetDefaultSurface(ReadSurface(t)); },
+			"setGroundOnlySurfaces", [](LuaVehicle &v, bool on) { if (Sim(v)) Sim(v)->SetGroundOnlySurfaces(on); },
+			"reset", [](LuaVehicle &v) { if (Sim(v)) Sim(v)->Reset(); },
+			"resetRolling", [](LuaVehicle &v, const f32 speed, const int gear) { if (Sim(v)) Sim(v)->ResetRolling(speed, gear); },
+			"setTyreTemperature", [](LuaVehicle &v, const f32 t) { if (Sim(v)) Sim(v)->SetTyreTemperature(t); },
+			"setWheelDamage", [](LuaVehicle &v, const uint32 i, const f32 grip, const f32 toe, const bool detached) { if (v.sim) v.sim->SetWheelDamage(i, grip, toe, detached); },
+			"setEnginePower", [](LuaVehicle &v, const f32 share) { if (v.sim) v.sim->SetEnginePower(share); },
+			// (the aero changed as it runs: a lost splitter or wing - the downforce and drag areas, the front's share)
+			"setAero", [](LuaVehicle &v, const f32 lift, const f32 drag, const f32 front) { if (v.sim) { VehicleAero &a = v.sim->EditConfig().aero; a.liftArea = lift; a.dragArea = drag; a.frontShare = front; } },
+			"wheelPose", [](LuaVehicle &v, int i) {
+				if (!Sim(v)) return std::make_tuple(0.f, 0.f, 0.f);
+				const VehicleWheelState &w = Sim(v)->GetWheel((uint32)i);
+				return std::make_tuple(w.suspension, w.steer, w.spin);
+			},
+			"wheel", [](LuaVehicle &v, int i, sol::this_state ts) {
+				sol::state_view lv(ts);
+				sol::table t = lv.create_table();
+				if (!Sim(v)) return t;
+				const VehicleWheelState &w = Sim(v)->GetWheel((uint32)i);
+				t["suspension"] = w.suspension; t["steer"] = w.steer; t["spin"] = w.spin; t["angularVelocity"] = w.angularVelocity;
+				t["load"] = w.load; t["slipRatio"] = w.slipRatio; t["slipAngle"] = w.slipAngle;
+				t["longitudinalForce"] = w.longitudinalForce; t["lateralForce"] = w.lateralForce;
+				t["surfaceTemperature"] = w.surfaceTemperature; t["coreTemperature"] = w.coreTemperature; t["grip"] = w.grip;
+				t["contact"] = w.contact; t["surface"] = w.surface; t["contactPoint"] = w.contactPoint; t["brakeTorque"] = w.brakeTorque;
+				// (also as numbers: a Vec3 put in a plain table came back to scripts as a function)
+				t["cx"] = w.contactPoint.x; t["cy"] = w.contactPoint.y; t["cz"] = w.contactPoint.z;
+				return t;
+			},
+			"telemetry", [](LuaVehicle &v, sol::this_state ts) {
+				sol::state_view lv(ts);
+				sol::table t = lv.create_table();
+				if (!Sim(v)) return t;
+				const VehicleTelemetry &m = Sim(v)->GetTelemetry();
+				t["speed"] = m.speed; t["rpm"] = m.rpm; t["gear"] = m.gear; t["shifting"] = m.shifting;
+				t["throttle"] = m.throttle; t["brake"] = m.brake; t["clutch"] = m.clutch; t["steer"] = m.steerInput;
+				t["steeringWheelAngle"] = m.steeringWheelAngle;
+				t["ax"] = m.acceleration.x; t["ay"] = m.acceleration.y; t["az"] = m.acceleration.z;
+				t["abs"] = m.absActive; t["tc"] = m.tcActive; t["limiter"] = m.limiter; t["ffb"] = m.ffb; t["ffbRumble"] = m.ffbRumble;
+				t["aligningTorque"] = m.aligningTorque; t["downforce"] = m.downforce; t["drag"] = m.drag;
+				t["engineTorque"] = m.engineTorque; t["fuelCut"] = m.fuelCut;
+				return t;
+			},
+			"ffb", [](LuaVehicle &v) { return Sim(v) ? Sim(v)->GetTelemetry().ffb : 0.f; },
+			"limiterRpm", [](LuaVehicle &v) { return Sim(v) ? Sim(v)->GetConfig().engine.limiterRpm : 0.f; },
+			"gearCount", [](LuaVehicle &v) { return Sim(v) ? (int)Sim(v)->GetConfig().drivetrain.gears.size() : 0; }
+		);
 	}
 
 	void RegisterLuaPhysics(sol::state* lua)

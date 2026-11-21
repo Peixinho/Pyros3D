@@ -145,7 +145,11 @@ namespace p3d {
 
 		// RPCs. Arguments are NetValues; target on the server is a peer or
 		// 0 for every client, on a client it is always the server.
-		void Rpc(const PeerId target, const std::string &name, const std::vector<NetValue> &args);
+		// reliable = false: sent once - not resent if lost, and it may arrive
+		// out of order. For state sent many times a second, where the next
+		// one replaces a lost one (a reliable one would hold every later
+		// message back until it had been resent).
+		void Rpc(const PeerId target, const std::string &name, const std::vector<NetValue> &args, const bool reliable = true);
 		typedef std::function<void(const PeerId sender, const std::vector<NetValue> &args)> RpcHandler;
 		void OnRpc(const std::string &name, const RpcHandler &handler) { rpcHandlers[name] = handler; }
 

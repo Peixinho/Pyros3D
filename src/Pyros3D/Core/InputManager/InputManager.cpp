@@ -70,6 +70,78 @@ namespace p3d {
 		for (int i = 0; i < 8; i++) p.axes[i] = 0.f;
 	}
 
+	// ---- raw joysticks (see the header) ----
+	namespace {
+		struct JoystickState {
+			bool connected = false;
+			std::string name, guid;
+			uint32 axisCount = 0, buttonCount = 0, hatCount = 0;
+			bool forceFeedback = false;
+			f32 axes[InputManager::MaxJoystickAxes] = {};
+			bool buttons[InputManager::MaxJoystickButtons] = {};
+			uint32 hats[InputManager::MaxJoystickHats] = {};
+			f32 force = 0.f;
+		};
+		JoystickState &Stick(const uint32 id)
+		{
+			static JoystickState s[InputManager::MaxJoysticks];
+			return s[id < InputManager::MaxJoysticks ? id : 0];
+		}
+		const std::string &NoName() { static const std::string n; return n; }
+	}
+	bool InputManager::IsJoystickConnected(const uint32 id) { return id < MaxJoysticks && Stick(id).connected; }
+	const std::string &InputManager::GetJoystickName(const uint32 id) { return id < MaxJoysticks ? Stick(id).name : NoName(); }
+	const std::string &InputManager::GetJoystickGUID(const uint32 id) { return id < MaxJoysticks ? Stick(id).guid : NoName(); }
+	uint32 InputManager::GetJoystickAxisCount(const uint32 id) { return id < MaxJoysticks ? Stick(id).axisCount : 0; }
+	uint32 InputManager::GetJoystickButtonCount(const uint32 id) { return id < MaxJoysticks ? Stick(id).buttonCount : 0; }
+	uint32 InputManager::GetJoystickHatCount(const uint32 id) { return id < MaxJoysticks ? Stick(id).hatCount : 0; }
+	f32 InputManager::GetJoystickAxis(const uint32 id, const uint32 axis)
+	{
+		return (!g_gameInputWithheld && id < MaxJoysticks && axis < MaxJoystickAxes) ? Stick(id).axes[axis] : 0.f;
+	}
+	bool InputManager::IsJoystickButtonDown(const uint32 id, const uint32 button)
+	{
+		return !g_gameInputWithheld && id < MaxJoysticks && button < MaxJoystickButtons && Stick(id).buttons[button];
+	}
+	uint32 InputManager::GetJoystickHat(const uint32 id, const uint32 hat)
+	{
+		return (!g_gameInputWithheld && id < MaxJoysticks && hat < MaxJoystickHats) ? Stick(id).hats[hat] : 0u;
+	}
+	bool InputManager::JoystickHasForceFeedback(const uint32 id) { return id < MaxJoysticks && Stick(id).forceFeedback; }
+	void InputManager::SetJoystickForce(const uint32 id, const f32 force)
+	{
+		if (id >= MaxJoysticks) return;
+		Stick(id).force = force < -1.f ? -1.f : (force > 1.f ? 1.f : force);
+	}
+	f32 InputManager::GetJoystickForce(const uint32 id) { return id < MaxJoysticks ? Stick(id).force : 0.f; }
+	void InputManager::SetJoystickConnected(const uint32 id, const bool connected, const std::string &name, const std::string &guid,
+		const uint32 axes, const uint32 buttons, const uint32 hats, const bool forceFeedback)
+	{
+		if (id >= MaxJoysticks) return;
+		JoystickState &j = Stick(id);
+		j = JoystickState();
+		j.connected = connected;
+		if (!connected) return;
+		j.name = name;
+		j.guid = guid;
+		j.axisCount = axes < MaxJoystickAxes ? axes : MaxJoystickAxes;
+		j.buttonCount = buttons < MaxJoystickButtons ? buttons : MaxJoystickButtons;
+		j.hatCount = hats < MaxJoystickHats ? hats : MaxJoystickHats;
+		j.forceFeedback = forceFeedback;
+	}
+	void InputManager::SetJoystickAxis(const uint32 id, const uint32 axis, const f32 value)
+	{
+		if (id < MaxJoysticks && axis < MaxJoystickAxes) Stick(id).axes[axis] = value;
+	}
+	void InputManager::SetJoystickButton(const uint32 id, const uint32 button, const bool down)
+	{
+		if (id < MaxJoysticks && button < MaxJoystickButtons) Stick(id).buttons[button] = down;
+	}
+	void InputManager::SetJoystickHat(const uint32 id, const uint32 hat, const uint32 value)
+	{
+		if (id < MaxJoysticks && hat < MaxJoystickHats) Stick(id).hats[hat] = value;
+	}
+
 	void InputManager::JoypadButtonPressed(const uint32 joypadID, const uint32 button)
 	{
 		if (joypadID < 8 && button < 32) Pad(joypadID).buttons |= (1u << button);

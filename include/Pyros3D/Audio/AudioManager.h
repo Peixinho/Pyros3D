@@ -19,6 +19,7 @@
 // miniaudio's own types are only needed by the implementation, so the header
 // stays opaque - including miniaudio.h here would drag ~95k lines into every
 // translation unit that just wants to play a sound.
+#include <cstdio>
 struct ma_engine;
 struct ma_sound;
 
@@ -112,6 +113,12 @@ namespace p3d {
 		// audio failing must never take a game down with it.
 		bool IsInitialized() const { return initialized; }
 
+		// PYROS_AUDIO_OFFLINE=<file>: no output device - the mix rendered as fast as the game runs, `seconds` of it each
+		// call (the player calls it each frame with the frame's step), into that file: float32, 2 channels, 48 kHz. A film
+		// rendered frame by frame gets its sound exactly in step with its pictures. Elsewhere it does nothing.
+		void PumpOffline(const f32 seconds);
+		bool IsOffline() const { return offlineOut != NULL; }
+
 		// 0 = silence, 1 = unity. Values above 1 are allowed and will clip.
 		void SetMasterVolume(const f32 volume);
 		f32 GetMasterVolume() const { return masterVolume; }
@@ -184,6 +191,7 @@ namespace p3d {
 		std::function<f32(const Vec3 &, const Vec3 &)> occlusionTest;
 
 		ma_engine* engine;
+		FILE* offlineOut = NULL; f64 offlineOwed = 0.0; f32 offlineGain = 1.f;
 		bool initialized;
 		f32 masterVolume;
 		Vec3 listenerPosition;

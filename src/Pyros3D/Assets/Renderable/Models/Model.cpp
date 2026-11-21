@@ -8,6 +8,7 @@
 
 #include <cstdio>
 #include <cstdint>
+#include <cstring>
 #include <cmath>
 #include <unordered_map>
 #include <filesystem>
@@ -441,6 +442,34 @@ namespace p3d {
 			}
 			return left;
 		}
+		// Loose cards: a geometry made of quads that touch nothing else - a crowd's people, each on a card of their own; blades
+		// of grass. There is nothing in it to simplify: joining vertices by their place joins one card's corner to another
+		// card's, and the triangles left run from one to the other across the model, each with a corner of some picture on it
+		// (a grandstand's people, 200 m off, were coloured streaks across the seats - and nobody). Told by its pieces: vertices
+		// joined by the triangles they share and by standing in the same place, and nine triangles in ten in a piece of two.
+		bool LooseCards(const ModelGeometry &g)
+		{
+			const size_t n = g.tVertex.size(), tris = g.index.size() / 3;
+			std::vector<uint32> parent(n);
+			for (size_t v = 0; v < n; v++) parent[v] = (uint32)v;
+			auto root = [&](uint32 v) { while (parent[v] != v) { parent[v] = parent[parent[v]]; v = parent[v]; } return v; };
+			auto join = [&](const uint32 a, const uint32 b) { const uint32 ra = root(a), rb = root(b); if (ra != rb) parent[rb] = ra; };
+			struct Place { size_t operator()(const Vec3 &p) const { uint32 b[3]; memcpy(b, &p.x, 4); memcpy(b + 1, &p.y, 4); memcpy(b + 2, &p.z, 4); return (size_t)((b[0] * 73856093u) ^ (b[1] * 19349663u) ^ (b[2] * 83492791u)); } };
+			struct Same { bool operator()(const Vec3 &a, const Vec3 &b) const { return a.x == b.x && a.y == b.y && a.z == b.z; } };
+			std::unordered_map<Vec3, uint32, Place, Same> at;
+			at.reserve(n);
+			for (size_t v = 0; v < n; v++)
+			{
+				const std::pair<std::unordered_map<Vec3, uint32, Place, Same>::iterator, bool> p = at.insert(std::make_pair(g.tVertex[v], (uint32)v));
+				if (!p.second) join(p.first->second, (uint32)v);
+			}
+			for (size_t t = 0; t < tris; t++) { join(g.index[t * 3], g.index[t * 3 + 1]); join(g.index[t * 3], g.index[t * 3 + 2]); }
+			std::vector<uint32> count(n, 0);
+			for (size_t t = 0; t < tris; t++) count[root(g.index[t * 3])]++;
+			size_t loose = 0;
+			for (size_t v = 0; v < n; v++) if (count[v] > 0 && count[v] <= 2) loose += count[v];
+			return loose * 10 >= tris * 9;
+		}
 	}
 
 	SimplifiedModel::SimplifiedModel(const std::shared_ptr<Model> &source, const f32 ratio, const bool upload)
@@ -469,7 +498,7 @@ namespace p3d {
 			if (!sound)
 				fprintf(stderr, "SimplifiedModel: '%s' geometry %d has %d vertices and a triangle list that goes past them - kept as it is\n",
 					Path.c_str(), (int)gi, (int)g.tVertex.size());
-			if (!sound || tris <= 16 || want >= tris || g.tVertex.empty())
+			if (!sound || tris <= 16 || want >= tris || g.tVertex.empty() || LooseCards(g))
 			{
 				// nothing to gain: as it is
 				out->index = g.index;

@@ -2050,6 +2050,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["direction"] = ToJson(l->GetLightDirection());
 			j["innerCone"] = l->GetLightInnerCone();
 			j["outterCone"] = l->GetLightOutterCone();
+			if (l->GetGroundEven() > 0.f) j["groundEven"] = l->GetGroundEven();     // (SpotLight::SetGroundEven)
 			j["castingShadows"] = l->IsCastingShadows();
 			if (l->IsCastingShadows())
 			{
@@ -2380,6 +2381,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["type"] = "UIImage";
 			j["tint"] = ToJson(img->GetTint());
 			j["border"] = ToJson(img->GetBorder());
+			if (img->HasRadialFill())
+				j["radialFill"] = { { "amount", img->GetFillAmount() }, { "origin", img->GetFillOrigin() }, { "sweep", img->GetFillSweep() }, { "clockwise", img->GetFillClockwise() } };
 			// Skips a texture with no recoverable source, exactly like a
 			// material's maps do - which is the right answer for the shared
 			// default white, and also for anything generated at runtime
@@ -4443,6 +4446,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			Vec3 direction = (j.find("direction") != j.end()) ? Vec3FromJson(j["direction"]) : Vec3(0, -1, 0);
 			auto l = std::make_shared<SpotLight>(color, j.value("radius", 1.0f), direction, j.value("outterCone", 45.0f), j.value("innerCone", 30.0f));
 			l->SetLightIntensity(j.value("intensity", 1.0f));
+			l->SetGroundEven(j.value("groundEven", 0.0f));
 			if (j.value("castingShadows", false))
 			{
 				l->EnableCastShadows(j.value("shadowWidth", 1024u), j.value("shadowHeight", 1024u), j.value("shadowNear", 0.1f));
@@ -4839,6 +4843,11 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "texture", textureCache, outAssets))
 				img->SetTexture(t);
 			if (j.find("border") != j.end()) img->SetBorder(Vec4FromJson(j["border"]));
+			if (j.find("radialFill") != j.end() && j["radialFill"].is_object())
+			{
+				const json &f = j["radialFill"];
+				img->SetRadialFill(f.value("amount", 1.f), f.value("origin", 90.f), f.value("sweep", 360.f), f.value("clockwise", true));
+			}
 			go->Add(std::static_pointer_cast<IComponent>(img));
 		}
 		else if (type == "Extrusion2D")

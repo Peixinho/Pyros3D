@@ -146,6 +146,15 @@ namespace p3d {
 			for (auto v : va) args.push_back(FromLua(v.as<sol::object>()));	// explicit: MSVC will not convert a stack_proxy implicitly
 			s->Rpc(target, name, args);
 		});
+		// network.send(target, name, ...): an rpc sent once - not resent if lost,
+		// and it may arrive out of order. For state sent many times a second.
+		net.set_function("send", [session](const uint32 target, const std::string &name, sol::variadic_args va) {
+			NetworkSession* s = session();
+			if (!s) return;
+			std::vector<NetValue> args;
+			for (auto v : va) args.push_back(FromLua(v.as<sol::object>()));
+			s->Rpc(target, name, args, false);
+		});
 		net.set_function("on", [session, lua](const std::string &name, sol::protected_function fn) {
 			NetworkSession* s = session();
 			if (!s) return;

@@ -8,6 +8,9 @@ layout(set = 1, binding = 1) uniform texture2D uTexture;
 layout(set = 1, binding = 2) uniform sampler uLinear;
 layout(set = 1, binding = 3) uniform texture2D uSceneDepth;
 layout(set = 1, binding = 4) uniform texture2D uSkySH;
+// (the frame's lights, as lighting.glsl has them: a lit particle takes the point and spot lights too)
+struct PLight { vec4 positionRange; vec4 radianceType; vec4 directionCosOuter; vec4 cosInner; };
+layout(set = 1, binding = 5, std430) readonly buffer PLights { uvec4 count; PLight lights[]; } uPLights;
 layout(location = 0) in vec2 vTexcoord;
 layout(location = 1) in float vAge;
 layout(location = 2) in vec3 vWorldPosition;
@@ -49,6 +52,10 @@ void main()
 		color.a *= clamp((sceneZ - vViewDepth) / uDraw.params.w, 0.0, 1.0);
 	}
 #endif
+	// (none within half a metre of the eye, all from a metre and a half: a raindrop falling past the lens - inside a
+	// car's cockpit, lit by its cabin lamp - drew as a column the screen's height for a frame)
+	color.a *= smoothstep(0.5, 1.5, vViewDepth);
+	if (color.a <= 0.0) discard;
 	vec3 rgb = color.rgb;
 	if (uDraw.light.x > 0.5)
 	{
@@ -58,7 +65,35 @@ void main()
 		float g = uDraw.light.y, cosT = dot(-toEye, normalize(uFrame.sunDirection.xyz));
 		float phase = (1.0 - g * g) / pow(max(1.0 + g * g - 2.0 * g * cosT, 1e-4), 1.5);   // (times 4 pi: 1 for an even scatter)
 		vec3 sun = uFrame.sunDirection.w > 0.0 ? uFrame.sunRadiance.rgb / PI * phase * 0.5 : vec3(0.0);
-		rgb *= ambient + sun;
+		// the point and spot lights (no shadows: a mist in a beam is lit where the beam is): each by its falloff and cone,
+		// scattered toward the eye as the sun's is - forward most (a headlight seen through a car's spray glows in it)
+		vec3 local = vec3(0.0);
+		uint n = min(uPLights.count.x, 256u);
+		for (uint i = 0u; i < n; i++)
+		{
+			PLight L = uPLights.lights[i];
+			if (L.radianceType.w > 1.5) continue;
+			vec3 toL = L.positionRange.xyz - vWorldPosition;
+			float dl = length(toL);
+			if (dl >= L.positionRange.w) continue;
+			vec3 l = toL / max(dl, 1e-4);
+			float x = dl / max(L.positionRange.w, 1e-4);
+			float w = clamp(1.0 - x * x * x * x, 0.0, 1.0);
+			float k = w * w / max(dl * dl, 0.01);
+			if (L.radianceType.w > 0.5)
+			{
+				float c = dot(-l, normalize(L.directionCosOuter.xyz));
+				float cone = clamp((c - L.directionCosOuter.w) / max(L.cosInner.x - L.directionCosOuter.w, 1e-4), 0.0, 1.0);
+				k *= cone * cone;
+			}
+			if (k <= 0.0) continue;
+			float ct = dot(-toEye, -l);
+			float ph = (1.0 - g * g) / pow(max(1.0 + g * g - 2.0 * g * ct, 1e-4), 1.5);
+			local += L.radianceType.rgb * k / PI * ph * 0.5;
+		}
+		// (its share of the lamps' light - ParticleSystem::SetLocalLightGain, light.x past 1: rain a trace, spray a part)
+		local *= max(uDraw.light.x - 1.0, 0.0);
+		rgb *= ambient + sun + local;
 	}
 	// (in the haze layer, as the scene behind it is: a far burst grey with the distance; a glow only dimmed by it)
 	if (uFrame.haze.x > 0.0)

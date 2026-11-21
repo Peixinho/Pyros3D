@@ -34,7 +34,22 @@ layout(set = 1, binding = 0, std140) uniform FrameData
 	vec4 lens;               // the screen's lens: xy its centre (0..1, y down), z its radius - a share of the height (0: none) - what is cut by it is not drawn within
 	vec4 haze;               // the haze layer (RenderGlobals::HazeLayer): x its thickness per metre at its base (0: none), y where it begins (m from
 	                         // the eye), z the height over which it thins to a third (m), w its base (world y) - HazeDepth
+	vec4 cloudLight;         // rgb: the light on the clouds' tops - the sun's through the air alone, whatever a game's weather leaves of
+	                         // the scene's light on the ground under them; w: how much of a deck the clouds are (0 broken .. 1 overcast)
 } uFrame;
+// The light of an overcast deck, from under it or inside it (radiance, the same all round): the daylight that fell on
+// its top - the sun's and the clear sky's (skyTop: the sky's radiance straight up) - a sixth of it let down through,
+// scattered until it comes from everywhere and is white. What the sky is, under a deck (uFrame.cloudLight.w): for the
+// clouds themselves, for what mirrors the sky, for the light all round.
+vec3 DeckLight(vec3 skyTop)
+{
+	vec3 sun = uFrame.sunDirection.w > 0.0 ? uFrame.cloudLight.rgb * max(normalize(uFrame.sunDirection.xyz).y, 0.0) : vec3(0.0);
+	// (a deck of cloud scatters every colour alike: the clear sky's brightness above it, not its blue - taken as it was, a
+	// night of rain was blue all over, the ambient, the sky and every wet road's puddles mirroring it)
+	float l = dot(skyTop, vec3(0.2126, 0.7152, 0.0722));
+	skyTop = mix(skyTop, vec3(l), 0.85);
+	return (sun + skyTop * 3.14159265) * (0.16 / 3.14159265);
+}
 // The haze layer between the eye and p: how much of the light from p it takes on the way (an optical depth - the light
 // kept is exp(-that)). Aerosol haze, grey, not the air's blue; none nearer than where it begins (a room, the street, what
 // is close is never veiled); thinning with height as exp(-h / H) over its base, so looking down from high up crosses only

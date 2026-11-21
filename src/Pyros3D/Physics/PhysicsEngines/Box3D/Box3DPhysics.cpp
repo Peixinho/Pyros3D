@@ -535,7 +535,7 @@ namespace p3d {
 	{
 		b3WorldDef def = b3DefaultWorldDef();
 		// Stress piles easily hit the default 400 m/s cap and tunnel through walls.
-		def.maximumLinearSpeed = 40.f;
+		def.maximumLinearSpeed = m_maxLinearSpeed;
 		def.contactHertz = 60.f;
 		def.contactDampingRatio = 10.f;
 		def.createDebugShape = PhysicsDebugDraw::CreateDebugShapeCallback;
@@ -823,10 +823,12 @@ namespace p3d {
 		// Fixed-step accumulator: variable frame dt (especially under load)
 		// was detonating contact islands so containment looked like walls crumbled.
 		timeInterval += time;
-		const float fixed = 1.f / 60.f;
+		const float fixed = m_fixedStep;
 		int maxSteps = (int)steps;
 		if (maxSteps < 1) maxSteps = 1;
 		if (maxSteps > (int)MaxPhysicsCatchUpSteps()) maxSteps = (int)MaxPhysicsCatchUpSteps(); // see PhysicsStepping.h
+		// (the cap is in 60 Hz steps' worth of time: a faster step rate runs more of them)
+		if (fixed < 1.f / 60.f) maxSteps = (int)std::ceil((f64)maxSteps * (1.0 / 60.0) / (f64)fixed);
 
 		int willRun = (int)(timeInterval / (f64)fixed);
 		if (willRun > maxSteps) willRun = maxSteps;
@@ -877,6 +879,17 @@ namespace p3d {
 			// physics before Scene/Lua UpdateTransformations).
 			for (size_t i = 0; i < m_vehicles.size(); ++i)
 				StepVehicle(m_vehicles[i], fixed);
+
+			// Per-step callbacks (a car's tyres and springs): their forces act on this step.
+			if (!m_stepCallbacks.empty())
+			{
+				m_inStep = true;
+				// (a callback may add or remove callbacks: walk a copy of the ids)
+				const std::vector<StepCallback> calls = m_stepCallbacks;
+				for (size_t i = 0; i < calls.size(); ++i)
+					if (calls[i].fn) calls[i].fn(fixed);
+				m_inStep = false;
+			}
 
 			b3World_Step(m_world, fixed, 4);
 			timeInterval -= (f64)fixed;
@@ -1159,7 +1172,18 @@ namespace p3d {
 				def.indices = handles->meshIndices.data();
 				def.vertexCount = (int)handles->meshVerts.size();
 				def.triangleCount = triCount;
+				// (the triangles' shared edges found - and the vertices at one point made one, so that they are found - for
+				// Box3D to take a contact on an edge between two of them as the surface's, not as a wall: without it a car's
+				// floor sliding over a smooth hairpin's road met the seam between two triangles head on and stopped dead in
+				// one step - 56 to 9 km/h - Catalunya's turn 10, cars wrecked there lap after lap. PYROS_MESH_EDGES=0: as before)
+				static const bool edges = !(getenv("PYROS_MESH_EDGES") && getenv("PYROS_MESH_EDGES")[0] == '0');
+				def.weldVertices = edges; def.weldTolerance = 0.001f;     // (1 mm: vertices a model split for its own UVs or normals)
+				def.identifyEdges = edges;
 				handles->ownedMesh = b3CreateMesh(&def, NULL, 0);
+				// (a big mesh's tree height: Box3D walks it with a 256-deep stack and drops what is past it)
+				if (triCount > 200000)
+					fprintf(stderr, "[physics] mesh %d triangles, tree height %d%s\n", triCount,
+						handles->ownedMesh ? b3GetHeight(handles->ownedMesh) : -1, handles->ownedMesh ? "" : " (NOT CREATED)");
 				// The vertices are the model's own: a model placed at a
 				// scale (an import in centimetres at 0.01) collides at
 				// that scale, not at the size of the file.
@@ -1624,6 +1648,7 @@ namespace p3d {
 	{
 		Box3DBodyHandles* handles = GetHandles(pcomp);
 		if (!handles || handles->body.index1 == 0) return;
+		if (m_inStep) { b3Body_ApplyForceToCenter(handles->body, ToB3(force), true); return; }
 		// (kept for Update to hand to its steps - see m_held)
 		HeldForce &h = HeldFor(handles->body);
 		h.force = b3Add(h.force, ToB3(force));
@@ -1659,6 +1684,7 @@ namespace p3d {
 	{
 		Box3DBodyHandles* handles = GetHandles(pcomp);
 		if (!handles || handles->body.index1 == 0) return;
+		if (m_inStep) { b3Body_ApplyForce(handles->body, ToB3(force), ToB3Pos(worldPoint), true); return; }
 		// (off the centre of mass, it also turns the body)
 		const b3Pos c = b3Body_GetWorldCenterOfMass(handles->body);
 		const b3Vec3 f = ToB3(force);
@@ -1767,6 +1793,192 @@ namespace p3d {
 	std::shared_ptr<IPhysicsComponent> Box3DPhysics::CreateVehicle(const std::shared_ptr<IPhysicsComponent> &ChassisShape, bool ghost)
 	{
 		return std::make_shared<PhysicsVehicle>(this, ChassisShape, ghost);
+	}
+
+}
+
+
+namespace p3d {
+
+	// ---- Step rate, per-step callbacks, filtered rays, mass properties (see IPhysics) ----
+
+	void Box3DPhysics::SetStepRate(const f32 hz)
+	{
+		const f32 h = hz < 30.f ? 30.f : (hz > 2000.f ? 2000.f : hz);
+		m_fixedStep = 1.f / h;
+	}
+
+	void Box3DPhysics::SetMaximumLinearSpeed(const f32 metresPerSecond)
+	{
+		m_maxLinearSpeed = metresPerSecond < 1.f ? 1.f : metresPerSecond;
+		if (m_world.index1 != 0) b3World_SetMaximumLinearSpeed(m_world, m_maxLinearSpeed);
+	}
+
+	uint32 Box3DPhysics::AddStepCallback(const std::function<void(f32)> &fn)
+	{
+		StepCallback c;
+		c.id = m_nextStepCallback++;
+		c.fn = fn;
+		m_stepCallbacks.push_back(c);
+		return c.id;
+	}
+
+	void Box3DPhysics::RemoveStepCallback(const uint32 id)
+	{
+		for (size_t i = 0; i < m_stepCallbacks.size(); ++i)
+			if (m_stepCallbacks[i].id == id) { m_stepCallbacks.erase(m_stepCallbacks.begin() + (std::ptrdiff_t)i); return; }
+	}
+
+	namespace {
+		struct IgnoringRay {
+			b3BodyId ignore;
+			bool hit;
+			b3ShapeId shape;
+			b3Pos point;
+			b3Vec3 normal;
+			float fraction;
+		};
+		float IgnoringRayHit(b3ShapeId shapeId, b3Pos point, b3Vec3 normal, float fraction, uint64_t, int, int, void* context)
+		{
+			IgnoringRay* r = (IgnoringRay*)context;
+			const b3BodyId body = b3Shape_GetBody(shapeId);
+			if (r->ignore.index1 != 0 && body.index1 == r->ignore.index1 && body.world0 == r->ignore.world0 && body.generation == r->ignore.generation)
+				return -1.f; // pass through: keep looking
+			if (b3Shape_IsSensor(shapeId)) return -1.f;
+			r->hit = true;
+			r->shape = shapeId;
+			r->point = point;
+			r->normal = normal;
+			r->fraction = fraction;
+			return fraction; // clip the ray here: only something closer can win now
+		}
+	}
+
+	RayCastHit Box3DPhysics::RayCastIgnoring(const Vec3 &from, const Vec3 &to, IPhysicsComponent* ignore)
+	{
+		RayCastHit hit;
+		if (m_world.index1 == 0) return hit;
+		IgnoringRay r;
+		Box3DBodyHandles* handles = ignore ? GetHandles(ignore) : NULL;
+		r.ignore = handles ? handles->body : b3_nullBodyId;
+		r.hit = false;
+		r.fraction = 1.f;
+		const Vec3 delta = to - from;
+		b3World_CastRay(m_world, ToB3Pos(from), ToB3(delta), b3DefaultQueryFilter(), IgnoringRayHit, &r);
+		if (r.hit)
+		{
+			hit.hasHit = true;
+			hit.point = FromB3Pos(r.point);
+			hit.normal = FromB3(r.normal);
+			hit.distance = delta.magnitude() * r.fraction;
+			hit.component = ComponentFromShape(r.shape);
+		}
+		return hit;
+	}
+
+	namespace {
+		struct FilteredRay {
+			const std::function<bool(IPhysicsComponent*)>* accept;
+			IPhysicsComponent* (*component)(b3ShapeId);
+			bool hit;
+			b3ShapeId shape;
+			b3Pos point;
+			b3Vec3 normal;
+			float fraction;
+		};
+	}
+
+	RayCastHit Box3DPhysics::RayCastFiltered(const Vec3 &from, const Vec3 &to, const std::function<bool(IPhysicsComponent*)> &accept)
+	{
+		RayCastHit hit;
+		if (m_world.index1 == 0) return hit;
+		FilteredRay r;
+		r.accept = &accept;
+		r.component = &Box3DPhysics::ComponentFromShape;
+		r.hit = false;
+		r.fraction = 1.f;
+		const Vec3 delta = to - from;
+		b3World_CastRay(m_world, ToB3Pos(from), ToB3(delta), b3DefaultQueryFilter(),
+			[](b3ShapeId shapeId, b3Pos point, b3Vec3 normal, float fraction, uint64_t, int, int, void* context) -> float {
+				FilteredRay* fr = (FilteredRay*)context;
+				if (b3Shape_IsSensor(shapeId)) return -1.f;
+				IPhysicsComponent* c = fr->component(shapeId);
+				if (!(*fr->accept)(c)) return -1.f;
+				fr->hit = true; fr->shape = shapeId; fr->point = point; fr->normal = normal; fr->fraction = fraction;
+				return fraction;
+			}, &r);
+		if (r.hit)
+		{
+			hit.hasHit = true;
+			hit.point = FromB3Pos(r.point);
+			hit.normal = FromB3(r.normal);
+			hit.distance = delta.magnitude() * r.fraction;
+			hit.component = ComponentFromShape(r.shape);
+		}
+		return hit;
+	}
+
+	void Box3DPhysics::SetMassProperties(IPhysicsComponent* pcomp, const f32 mass, const Vec3 &localCenter, const Vec3 &inertia)
+	{
+		Box3DBodyHandles* handles = GetHandles(pcomp);
+		if (!handles || handles->body.index1 == 0 || mass <= 0.f) return;
+		b3MassData md;
+		md.mass = mass;
+		md.center = ToB3(localCenter);
+		md.inertia.cx = b3Vec3{ inertia.x, 0.f, 0.f };
+		md.inertia.cy = b3Vec3{ 0.f, inertia.y, 0.f };
+		md.inertia.cz = b3Vec3{ 0.f, 0.f, inertia.z };
+		b3Body_SetMassData(handles->body, md);
+	}
+
+	void Box3DPhysics::ApplyTorque(IPhysicsComponent* pcomp, const Vec3 &torque)
+	{
+		Box3DBodyHandles* handles = GetHandles(pcomp);
+		if (!handles || handles->body.index1 == 0) return;
+		if (m_inStep) { b3Body_ApplyTorque(handles->body, ToB3(torque), true); return; }
+		HeldForce &h = HeldFor(handles->body);
+		h.torque = b3Add(h.torque, ToB3(torque));
+	}
+
+	IPhysics::BodyState Box3DPhysics::GetBodyState(IPhysicsComponent* pcomp)
+	{
+		BodyState st;
+		Box3DBodyHandles* handles = pcomp ? GetHandles(pcomp) : NULL;
+		if (!handles || !b3Body_IsValid(handles->body)) return st;
+		st.position = FromB3Pos(b3Body_GetPosition(handles->body));
+		st.rotation = FromB3Quat(b3Body_GetRotation(handles->body));
+		st.linearVelocity = FromB3(b3Body_GetLinearVelocity(handles->body));
+		st.angularVelocity = FromB3(b3Body_GetAngularVelocity(handles->body));
+		st.com = FromB3Pos(b3Body_GetWorldCenterOfMass(handles->body));
+		st.valid = true;
+		return st;
+	}
+
+	void Box3DPhysics::SetFriction(IPhysicsComponent* pcomp, const f32 friction)
+	{
+		Box3DBodyHandles* handles = GetHandles(pcomp);
+		if (!handles || handles->body.index1 == 0) return;
+		b3ShapeId shapes[64];
+		const int n = b3Body_GetShapes(handles->body, shapes, 64);
+		for (int i = 0; i < n; i++) b3Shape_SetFriction(shapes[i], friction);
+	}
+
+	void Box3DPhysics::SetCollisionBits(IPhysicsComponent* pcomp, const uint32 category, const uint32 mask)
+	{
+		Box3DBodyHandles* handles = GetHandles(pcomp);
+		if (!handles || handles->body.index1 == 0) return;
+		b3ShapeId shapes[64];
+		const int n = b3Body_GetShapes(handles->body, shapes, 64);
+		for (int i = 0; i < n; i++) { b3Filter f = b3Shape_GetFilter(shapes[i]); f.categoryBits = category; f.maskBits = 0xFFFFFFFF00000000ull | mask; b3Shape_SetFilter(shapes[i], f, true); }
+	}
+
+	void Box3DPhysics::SetRestitution(IPhysicsComponent* pcomp, const f32 restitution)
+	{
+		Box3DBodyHandles* handles = GetHandles(pcomp);
+		if (!handles || handles->body.index1 == 0) return;
+		b3ShapeId shapes[64];
+		const int n = b3Body_GetShapes(handles->body, shapes, 64);
+		for (int i = 0; i < n; i++) b3Shape_SetRestitution(shapes[i], restitution);
 	}
 
 }

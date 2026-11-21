@@ -18,6 +18,7 @@
 #include <memory>
 #include <set>
 #include <utility>
+#include <functional>
 #include <vector>
 #include <cstdint>
 
@@ -101,6 +102,22 @@ namespace p3d {
 		virtual void ApplyForceAtPoint(IPhysicsComponent *pcomp, const Vec3 &force, const Vec3 &worldPoint);
 		virtual void SetMass(IPhysicsComponent *pcomp, const f32 mass);
 
+		// See IPhysics: step rate, per-step callbacks, filtered rays, mass properties.
+		virtual void SetStepRate(const f32 hz);
+		virtual void SetMaximumLinearSpeed(const f32 metresPerSecond);
+		virtual f32 GetMaximumLinearSpeed() const { return m_maxLinearSpeed; }
+		virtual f32 GetStepRate() const { return 1.f / m_fixedStep; }
+		virtual uint32 AddStepCallback(const std::function<void(f32)> &fn);
+		virtual void RemoveStepCallback(const uint32 id);
+		virtual RayCastHit RayCastIgnoring(const Vec3 &from, const Vec3 &to, IPhysicsComponent* ignore);
+		virtual RayCastHit RayCastFiltered(const Vec3 &from, const Vec3 &to, const std::function<bool(IPhysicsComponent*)> &accept);
+		virtual void SetMassProperties(IPhysicsComponent* pcomp, const f32 mass, const Vec3 &localCenter, const Vec3 &inertia);
+		virtual void ApplyTorque(IPhysicsComponent* pcomp, const Vec3 &torque);
+		virtual BodyState GetBodyState(IPhysicsComponent* pcomp);
+		virtual void SetFriction(IPhysicsComponent* pcomp, const f32 friction);
+		virtual void SetCollisionBits(IPhysicsComponent* pcomp, const uint32 category, const uint32 mask);
+		virtual void SetRestitution(IPhysicsComponent* pcomp, const f32 restitution);
+
 		virtual std::shared_ptr<IPhysicsComponent> CreateBox(const f32 width, const f32 height, const f32 depth, const f32 mass, bool ghost = false);
 		virtual std::shared_ptr<IPhysicsComponent> CreateCapsule(const f32 radius, const f32 height, const f32 mass, bool ghost = false);
 		virtual std::shared_ptr<IPhysicsComponent> CreateCone(const f32 radius, const f32 height, const f32 mass, bool ghost = false);
@@ -156,6 +173,15 @@ namespace p3d {
 		// step - four times the push at 240 frames a second).
 		struct HeldForce { b3BodyId body; b3Vec3 force, torque, owed, owedAngular; };
 		std::vector<HeldForce> m_held;
+
+		// Fixed step (SetStepRate) and what runs before each step.
+		f32 m_fixedStep = 1.f / 60.f;
+		f32 m_maxLinearSpeed = 40.f;
+		struct StepCallback { uint32 id; std::function<void(f32)> fn; };
+		std::vector<StepCallback> m_stepCallbacks;
+		uint32 m_nextStepCallback = 1;
+		// True while the step callbacks run: forces then go straight to the step.
+		bool m_inStep = false;
 		HeldForce& HeldFor(const b3BodyId body);
 
 		// Shared tail of UpdateRotation/UpdateRotationQuat: set the

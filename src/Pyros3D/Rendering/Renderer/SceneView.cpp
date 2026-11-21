@@ -4,6 +4,7 @@
 // Description : A second view of a scene, drawn into a texture a material shows
 //============================================================================
 
+#include <cstdlib>
 #include <Pyros3D/Rendering/Renderer/SceneView.h>
 #include <Pyros3D/Rendering/Renderer/SceneRenderer.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
@@ -26,6 +27,7 @@ namespace p3d {
 		texture(new Texture())
 	{
 		renderer->SetName("Scene view");
+		renderer->SetSecondaryView(true);
 		MakeTarget();
 	}
 
@@ -58,6 +60,10 @@ namespace p3d {
 	void SceneView::Render(SceneGraph* scene, GameObject* camera, const Projection &projection)
 	{
 		if (!scene || !target) return;
+		// (PYROS_NO_RENDER: a simulation - nothing drawn, these views neither: a car's mirrors and dash screen were 16 of a
+		// headless race's 19 ms a frame)
+		static const bool noRender = std::getenv("PYROS_NO_RENDER") != NULL;
+		if (noRender) return;
 		// (a renderer's frame still being recorded on its thread: done first - this uses the device, and the smoke's grids)
 		SceneRenderer::WaitAllIdle();
 		// (the look of the view it was made beside, where that one is still drawing)

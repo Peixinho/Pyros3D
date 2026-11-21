@@ -301,6 +301,26 @@ namespace p3d {
 				// Ragdoll surface: drive bones from world-space transforms
 				// (physics bodies), then upload once.
 				"setBoneWorld", &SkeletonAnimationInstance::SetBoneWorldTransform,
+				// setBoneModel(bone, position, rotation): the same in MODEL space (what
+				// getBoneGlobal gives) - for a pose worked out in the model's own frame
+				// (a driver's arms to a steering wheel, in a car at 80 m/s: nothing of
+				// the world in it, so no frame of lag and none of its large numbers).
+				// Parents before children; refreshSkinning() once after the batch.
+				"setBoneModel", [](SkeletonAnimationInstance& self, int32 boneId, const Vec3& position, const Quaternion& rotation) -> bool {
+					const std::vector<Bone>& bones = self.GetSkeletonBones();
+					if (boneId < 0 || (size_t)boneId >= bones.size()) return false;
+					Quaternion rot = rotation;
+					Matrix model = rot.ConvertToMatrix();
+					model.Translate(position);
+					const int32 parent = bones[boneId].parent;
+					if (parent >= 0 && (uint32)parent < self.GetNumberBones()) {
+						Matrix parentModel = self.GetBoneGlobalTransform(parent);
+						model = parentModel.Inverse() * model;
+					}
+					self.SetBoneLocalTransform(boneId, model);
+					self.RefreshHierarchy();
+					return true;
+				},
 				"holdPose", &SkeletonAnimationInstance::SetPoseHeld,
 				"isPoseHeld", &SkeletonAnimationInstance::IsPoseHeld,
 				"refreshSkinning", &SkeletonAnimationInstance::RefreshSkinning,
@@ -615,7 +635,10 @@ namespace p3d {
 				"minRotationSpeed", &ParticleSystemDesc::minRotationSpeed,
 				"maxRotationSpeed", &ParticleSystemDesc::maxRotationSpeed,
 				"blendMode", &ParticleSystemDesc::blendMode,
-				"boundingSphereRadius", &ParticleSystemDesc::boundingSphereRadius
+				"boundingSphereRadius", &ParticleSystemDesc::boundingSphereRadius,
+				// (drawn stretched along their motion - the streak each travelled over that many seconds: sparks)
+				"stretch", &ParticleSystemDesc::stretch,
+				"softness", &ParticleSystemDesc::softness
 				);
 
 			lua->new_usertype<ParticleSystem>("ParticleSystem",
@@ -644,6 +667,7 @@ namespace p3d {
 					[](ParticleSystem &p, const bool on, const f32 bounce, const uint32 mask) { p.SetCollide2D(on, bounce, mask); }),
 				"setSizes", &ParticleSystem::SetSizes,
 				"setColors", &ParticleSystem::SetColors,
+				"setStretch", &ParticleSystem::SetStretch,
 				"setFade", &ParticleSystem::SetFade,
 				"setSoftness", &ParticleSystem::SetSoftness,
 				"setGPUSimulation", &ParticleSystem::SetGPUSimulation,
@@ -654,6 +678,8 @@ namespace p3d {
 					[](ParticleSystem &p, const bool on, const f32 g) { p.SetLit(on, g); }),
 				"setRotationSpeed", &ParticleSystem::SetRotationSpeed,
 				"setBlendMode", &ParticleSystem::SetBlendMode,
+				// ps:setLocalLightGain(k): its share of the point and spot lights (1 all)
+				"setLocalLightGain", &ParticleSystem::SetLocalLightGain,
 				sol::base_classes, sol::bases<IComponent>()
 				);
 		}

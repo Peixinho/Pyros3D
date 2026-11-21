@@ -7,6 +7,8 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
+#include <algorithm>
+#include <cmath>
 
 namespace p3d {
 
@@ -115,6 +117,80 @@ namespace p3d {
 		BoundingSphereRadius = minBounds.distance(BoundingSphereCenter);
 	}
 
+	void UIQuad::RebuildRadial(const f32 width, const f32 height, const Vec2 &pivot,
+		const f32 amount, const f32 originDeg, const f32 sweepDeg, const bool clockwise)
+	{
+		if (!Geometries.empty())
+		{
+			geometry->Dispose();
+			geometry->index.clear();
+			geometry->tVertex.clear();
+			geometry->tNormal.clear();
+			geometry->tTexcoord.clear();
+			Geometries.clear();
+		}
+
+		const f32 x0 = -pivot.x * width;
+		const f32 x1 = x0 + width;
+		const f32 y0 = pivot.y * height;
+		const f32 y1 = y0 - height;
+		const f32 cx = 0.5f * (x0 + x1), cy = 0.5f * (y0 + y1);
+		const f32 hw = 0.5f * width, hh = 0.5f * height;
+		const f32 a = amount < 0.f ? 0.f : (amount > 1.f ? 1.f : amount);
+		const f32 sweep = (sweepDeg < 0.f ? 0.f : (sweepDeg > 360.f ? 360.f : sweepDeg)) * a;
+		const f32 dir = clockwise ? -1.f : 1.f;          // (angles counter-clockwise, as atan2's)
+		const f32 DEG = 3.14159265358979f / 180.f;
+
+		// the angles round the fan: its two ends, and every corner of the rect between them (its edges are straight:
+		// a point at each end of an edge is the edge)
+		std::vector<f32> steps;
+		steps.push_back(0.f);
+		if (hw > 0.f && hh > 0.f)
+		{
+			const f32 c = std::atan2(hh, hw) / DEG;
+			const f32 corners[4] = { c, 180.f - c, 180.f + c, 360.f - c };
+			for (uint32 i = 0; i < 4; i++)
+			{
+				f32 s = std::fmod(dir * (corners[i] - originDeg), 360.f);
+				if (s < 0.f) s += 360.f;
+				if (s > 0.f && s < sweep) steps.push_back(s);
+			}
+		}
+		steps.push_back(sweep);
+		std::sort(steps.begin(), steps.end());
+
+		const Vec3 normal(0.f, 0.f, 1.f);
+		const auto put = [&](const f32 x, const f32 y) {
+			geometry->tVertex.push_back(Vec3(x, y, 0.f));
+			geometry->tTexcoord.push_back(Vec2(width > 0.f ? (x - x0) / width : 0.5f, height > 0.f ? (y0 - y) / height : 0.5f));
+			geometry->tNormal.push_back(normal);
+		};
+		put(cx, cy);
+		for (size_t i = 0; i < steps.size(); i++)
+		{
+			const f32 ang = (originDeg + dir * steps[i]) * DEG;
+			const f32 dx = std::cos(ang), dy = std::sin(ang);
+			f32 t = 1e9f;
+			if (std::fabs(dx) > 1e-6f) t = std::min(t, hw / std::fabs(dx));
+			if (std::fabs(dy) > 1e-6f) t = std::min(t, hh / std::fabs(dy));
+			if (t > 1e8f) t = 0.f;
+			put(cx + dx * t, cy + dy * t);
+		}
+		// (nothing to show: one triangle with no area - a mesh must have one)
+		for (uint32 i = 1; i + 1 < (uint32)geometry->tVertex.size(); i++)
+		{
+			geometry->index.push_back(0); geometry->index.push_back(i); geometry->index.push_back(i + 1);
+		}
+		if (geometry->index.empty()) { put(cx, cy); put(cx, cy); geometry->index.push_back(0); geometry->index.push_back(1); geometry->index.push_back(2); }
+
+		Build();
+
+		minBounds = Vec3(x0, y1, 0.f);
+		maxBounds = Vec3(x1, y0, 0.f);
+		BoundingSphereCenter = (minBounds + maxBounds) * 0.5f;
+		BoundingSphereRadius = minBounds.distance(BoundingSphereCenter);
+	}
+
 	const std::shared_ptr<Texture> &UIImage::WhiteTexture()
 	{
 		// Function-local static, not a file-scope one: a Texture owns a GPU
@@ -168,6 +244,9 @@ namespace p3d {
 		builtPivot = Vec2(0.5f, 0.5f);
 		builtBorder = border;
 		built = false;
+		radial = false;
+		fillAmount = 1.f; fillOrigin = 90.f; fillSweep = 360.f; fillClockwise = true;
+		builtFill = -1.f;
 
 		// Kept out of the 3D pass - see RenderLayer in RenderingComponent.h.
 		SetRenderLayer(RenderLayer::UI);
@@ -215,8 +294,39 @@ namespace p3d {
 		built = false;
 	}
 
+	void UIImage::SetRadialFill(const f32 amount, const f32 originDeg, const f32 sweepDeg, const bool clockwise)
+	{
+		if (radial && amount == fillAmount && originDeg == fillOrigin && sweepDeg == fillSweep && clockwise == fillClockwise) return;
+		radial = true;
+		fillAmount = amount; fillOrigin = originDeg; fillSweep = sweepDeg; fillClockwise = clockwise;
+		built = false;
+	}
+
+	void UIImage::SetFillAmount(const f32 amount)
+	{
+		if (amount == fillAmount) return;
+		fillAmount = amount;
+		if (radial) built = false;
+	}
+
+	void UIImage::ClearFill()
+	{
+		if (!radial) return;
+		radial = false;
+		built = false;
+	}
+
 	void UIImage::OnRectSolved(const UIRectValue &rect, const Vec2 &pivot)
 	{
+		if (radial)
+		{
+			if (built && rect.width == builtWidth && rect.height == builtHeight && pivot.x == builtPivot.x && pivot.y == builtPivot.y)
+				return;
+			static_cast<UIQuad*>(GetRenderable())->RebuildRadial(rect.width, rect.height, pivot, fillAmount, fillOrigin, fillSweep, fillClockwise);
+			builtWidth = rect.width; builtHeight = rect.height; builtPivot = pivot; builtFill = fillAmount;
+			built = true;
+			return;
+		}
 		if (built &&
 			rect.width == builtWidth && rect.height == builtHeight &&
 			pivot.x == builtPivot.x && pivot.y == builtPivot.y &&

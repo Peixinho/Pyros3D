@@ -153,6 +153,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/Components/IPhysicsComponent.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/Components/MultipleSphere/PhysicsMultipleSphere.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/Components/Vehicle/PhysicsVehicle.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/Vehicle/VehicleSim.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/Components/StaticPlane/PhysicsStaticPlane.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/Components/ConvexHull/PhysicsConvexHull.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/Physics.cpp

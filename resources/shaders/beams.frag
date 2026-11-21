@@ -107,11 +107,53 @@ void main()
 		float sq = sqrt(disc);
 		float t0 = max(-b - sq, 0.0), t1 = min(-b + sq, tScene);
 		if (t1 <= t0) continue;
-		float dt = (t1 - t0) / float(steps);
+		// (a spot: the stretch of the ray inside its cone alone - a narrow beam is a small part of the ball its reach
+		// makes, and steps spread over the ball left two or three in the beam. Where |p - lamp| cos(outer) <= (p - lamp).axis:
+		// a quadratic in t, and the half of the double cone the lamp points into)
+		if (L.radianceType.w > 0.5 && L.directionCosOuter.w > 0.02)
+		{
+			vec3 axis = normalize(L.directionCosOuter.xyz);
+			float co2 = L.directionCosOuter.w * L.directionCosOuter.w;
+			float dA = dot(rd, axis), vA = dot(oc, axis);
+			float qa = dA * dA - co2, qb = dA * vA - co2 * b, qc = vA * vA - co2 * dot(oc, oc);
+			if (abs(qa) < 1e-6) qa = qa < 0.0 ? -1e-6 : 1e-6;
+			float qd = qb * qb - qa * qc;
+			if (qd <= 0.0)
+			{
+				if (qa < 0.0) continue;
+				if (dA > 0.0) t0 = max(t0, -vA / dA); else t1 = min(t1, -vA / dA);
+			}
+			else
+			{
+				float sr = sqrt(qd);
+				float r1 = (-qb - sr) / qa, r2 = (-qb + sr) / qa;
+				if (r1 > r2) { float tmp = r1; r1 = r2; r2 = tmp; }
+				if (qa < 0.0)
+				{
+					if (vA + 0.5 * (r1 + r2) * dA <= 0.0) continue;
+					t0 = max(t0, r1); t1 = min(t1, r2);
+				}
+				else if (dA > 0.0) t0 = max(t0, r2);
+				else t1 = min(t1, r1);
+			}
+			if (t1 <= t0) continue;
+		}
+		// The steps even in the angle the lamp sees the ray under, not in distance along it: the light falls with the
+		// square of the distance, and even steps (24 over a 180 m stretch, 7 m each) caught the bright metre beside the
+		// lamp in one pixel and missed it in the next - a haze of dots round every lamp looked into, which only the
+		// temporal resolve hid. Stepped this way each step carries the same share of the lamp's light (the square
+		// cancels): t = tc + D tan(angle), a step's length D / cos^2(angle) times the angle's step.
+		// (D the ray's distance from the lamp, no less than the 10 cm DistanceFalloff holds a lamp's size to)
+		float tc = -b;
+		float D = max(sqrt(max(dot(oc, oc) - b * b, 0.0)), 0.1);
+		float thA = atan(t0 - tc, D), thB = atan(t1 - tc, D);
+		float dth = (thB - thA) / float(steps);
 		for (int s = 0; s < 64; s++)
 		{
 			if (s >= steps) break;
-			vec3 p = ro + rd * (t0 + (float(s) + jitter) * dt);
+			float x = D * tan(thA + (float(s) + jitter) * dth);
+			float dt = dth * (D * D + x * x) / D;
+			vec3 p = ro + rd * (tc + x);
 			vec3 toLight = L.positionRange.xyz - p;
 			float d = length(toLight);
 			vec3 l = toLight / max(d, 1e-4);
@@ -120,7 +162,7 @@ void main()
 			{
 				float c = dot(-l, normalize(L.directionCosOuter.xyz));
 				float cone = clamp((c - L.directionCosOuter.w) / max(L.cosInner.x - L.directionCosOuter.w, 1e-4), 0.0, 1.0);
-				f *= cone * cone;
+				f *= cone * cone * GroundEven(l, L.radianceType.w);
 			}
 			if (f <= 0.0) continue;
 			if (L.cosInner.y >= 0.0) f *= AirShadow(int(L.cosInner.y), L.radianceType.w < 0.5, p, L.positionRange.xyz);

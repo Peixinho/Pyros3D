@@ -4,7 +4,7 @@
 struct Light
 {
 	vec4 positionRange;      // xyz world, w: radius (no light past it)
-	vec4 radianceType;       // rgb linear, w: 0 point, 1 spot, 2 directional (a light after the sun: directionCosOuter.xyz toward it)
+	vec4 radianceType;       // rgb linear, w: 0 point, 1 spot (1 + the sine SpotLight::SetGroundEven gave it), 2 directional (a light after the sun: directionCosOuter.xyz toward it)
 	vec4 directionCosOuter;  // a spot's: xyz the way it points, w: cos of its outer cone
 	vec4 cosInner;           // x: cos of a spot's inner cone, y: its first shadow tile (shadows.glsl), < 0 none
 };
@@ -48,6 +48,16 @@ vec3 SurfaceLight(vec3 n, vec3 v, vec3 l, vec3 radiance, vec3 diffuseColor, vec3
 	return (diffuse + specular) * radiance * NoL;
 }
 
+// A spot made to light the ground under it evenly (SpotLight::SetGroundEven): what it throws down a ray, by how
+// steeply the ray goes down. (l: from the lit point to the lamp; type: the light's radianceType.w)
+float GroundEven(vec3 l, float type)
+{
+	float s = type - 1.0;
+	if (s <= 0.0) return 1.0;
+	float r = s / max(l.y, s);
+	return r * r * r;
+}
+
 // Inverse square, windowed to nothing at the radius (as the engine's lights are set up: LinearFalloffIntensity)
 float DistanceFalloff(float d, float radius)
 {
@@ -84,7 +94,7 @@ vec3 AllLights(vec3 position, vec3 n, vec3 ng, vec3 v, vec3 diffuseColor, vec3 f
 		{
 			float c = dot(-l, normalize(L.directionCosOuter.xyz));
 			float cone = clamp((c - L.directionCosOuter.w) / max(L.cosInner.x - L.directionCosOuter.w, 1e-4), 0.0, 1.0);
-			k *= cone * cone;
+			k *= cone * cone * GroundEven(l, L.radianceType.w);
 		}
 		// (its shadow, where it casts one - not under the debug view without shadows)
 		if (k > 0.0 && L.cosInner.y >= 0.0 && uFrame.frame.w != 4.0) k *= LocalShadow(int(L.cosInner.y), L.radianceType.w < 0.5, position, ng, L.positionRange.xyz);

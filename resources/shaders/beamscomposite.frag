@@ -1,8 +1,9 @@
 #version 450
 #include "common.glsl"
 // The air's light laid over the picture (blended, premultiplied: rgb what it adds, a what of the picture it hides - the
-// fog's): the half-size march brought to this size bilinearly, each
-// of its four texels also weighed by how near the depth it marched to is to this pixel's - so a beam does not bleed
+// fog's): the half-size march brought to this size over the sixteen texels round the pixel - a smooth bell (a cubic
+// B-spline's weights), so what grain the march's jittered steps leave is spread out, not drawn as dots two pixels
+// wide - each texel also weighed by how near the depth it marched to is to this pixel's, so a beam does not bleed
 // across what stands in front of it.
 layout(set = 1, binding = 1) uniform texture2D uBeams;       // (beams.frag's: rgb the light the air adds, a what it hides)
 layout(set = 1, binding = 2) uniform texture2D uDepth;       // (the prepass's: reversed Z)
@@ -27,13 +28,17 @@ void main()
 	vec2 f = pos - vec2(corner);
 	vec4 acc = vec4(0.0);
 	float wsum = 0.0;
-	for (int j = 0; j < 4; j++)
+	vec2 f2 = f * f, f3 = f2 * f;
+	vec2 w0 = (1.0 - 3.0 * f + 3.0 * f2 - f3) / 6.0, w1 = (4.0 - 6.0 * f2 + 3.0 * f3) / 6.0, w2 = (1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3) / 6.0, w3 = f3 / 6.0;
+	float wx[4] = float[4](w0.x, w1.x, w2.x, w3.x);
+	float wy[4] = float[4](w0.y, w1.y, w2.y, w3.y);
+	for (int j = 0; j < 16; j++)
 	{
-		ivec2 o = ivec2(j & 1, j >> 1);
-		ivec2 tc = clamp(corner + o, ivec2(0), isz - 1);
+		ivec2 o = ivec2(j & 3, j >> 2);
+		ivec2 tc = clamp(corner + o - 1, ivec2(0), isz - 1);
 		float there = DistanceAt(ivec2((vec2(tc) + 0.5) / sz * vec2(dsize)), dsize);
-		float w = (o.x == 1 ? f.x : 1.0 - f.x) * (o.y == 1 ? f.y : 1.0 - f.y);
-		w = (w + 0.001) / (0.01 + abs(there - here) / min(here, 1.0e5));
+		float w = wx[o.x] * wy[o.y];
+		w = (w + 0.0005) / (0.01 + abs(there - here) / min(here, 1.0e5));
 		acc += texelFetch(sampler2D(uBeams, uLinearClamp), tc, 0) * w;
 		wsum += w;
 	}

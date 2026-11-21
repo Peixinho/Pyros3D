@@ -6,12 +6,26 @@
 #ifdef LUA_BINDINGS
 
 #include <Pyros3D/Utils/Bindings/PyrosLuaBindings.h>
+#ifndef EMSCRIPTEN
+#include <enet/enet.h>
+#include <map>
+#endif
+#include <Pyros3D/Rendering/Renderer/ImpostorBaker.h>
 #include <Pyros3D/Rendering/Volumetrics/VolumetricSmoke.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaHelpers.h>
 #include <Pyros3D/Assets/Renderable/Terrains/TerrainEditor.h>
 #include <Pyros3D/Physics/PhysicsEngines/IPhysics.h>
 #include <Pyros3D/Rendering/Components/Foliage/FarForest.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 #include <Pyros3D/Utils/Navigation/PathGrid.h>
 #include <Pyros3D/Utils/Navigation/Crowd.h>
 #include <Pyros3D/Utils/Navigation/NavMesh.h>
@@ -38,6 +52,14 @@
 #include <fstream>
 #include <sstream>
 #include <Pyros3D/Rendering/Terrain/TerrainHorizon.h>
+#include <Pyros3D/Rendering/Components/UI/LoadingScreen.h>
+// (video: MPEG-1 decoded on the CPU into a texture - pl_mpeg, phoboslab, MIT; the one place it is compiled)
+#include <thread>
+#include <mutex>
+#include <atomic>
+#include <deque>
+#define PL_MPEG_IMPLEMENTATION
+#include "../../Ext/pl_mpeg/pl_mpeg.h"
 #ifdef EMSCRIPTEN
 #include <emscripten.h>
 #endif
@@ -236,13 +258,113 @@ namespace p3d {
 		FrameProfiler::Instance().Counter("Lua.GcSteps", (f64)steps);
 	}
 
+	// A film played into a texture: an MPEG-1 file (.mpg - ffmpeg -c:v mpeg1video), its pictures only - the sound is its
+	// own file, played as any sound is. Decoded on this thread, frame by frame as the time it is given reaches each.
+	//   local v = VideoPlayer.new(path)   v:update(dt) each frame   ui.setTexture(img, v:texture())   v:done()
+	struct LuaVideo
+	{
+		// (decoded on a thread of its own, a few frames ahead: the game's thread only takes the newest that is due and
+		// uploads it. Decoded on the game's thread, a frame behind the soundtrack made the next decode several frames at
+		// once - slower again, further behind: the film crawled)
+		struct Frame { std::vector<uint8_t> rgba; double time = 0.0; };
+		static const int kAhead = 4;
+		plm_t* plm = NULL;
+		std::shared_ptr<Texture> tex;
+		int w = 0, h = 0;
+		double t = 0.0, fps = 30.0;
+		std::atomic<bool> finished{ false }, decodeDone{ false }, quit{ false };
+		std::mutex mtx;
+		std::deque<Frame> ready;
+		std::vector<std::vector<uint8_t> > spare;
+		std::thread worker;
+		std::atomic<int> decoded{ 0 }, shownCount{ 0 }; double lastShownTime = -1.0;
+		explicit LuaVideo(const std::string &path)
+		{
+			plm = plm_create_with_filename(path.c_str());
+			if (!plm) { echo("WARNING: VideoPlayer - cannot open " + path); finished = true; return; }
+			plm_set_audio_enabled(plm, 0);
+			plm_set_loop(plm, 0);
+			w = plm_get_width(plm); h = plm_get_height(plm);
+			fps = std::max(1.0, plm_get_framerate(plm));
+			std::vector<uint8_t> black((size_t)w * h * 4, 0);
+			for (size_t i = 3; i < black.size(); i += 4) black[i] = 255;
+			tex = std::make_shared<Texture>();
+			tex->LoadTextureFromPixels(black.data(), w, h, false, std::string(), false);
+			worker = std::thread([this]() { Run(); });
+		}
+		~LuaVideo()
+		{
+			quit = true;
+			if (worker.joinable()) worker.join();
+			if (plm) plm_destroy(plm);
+		}
+		void Run()
+		{
+			while (!quit)
+			{
+				std::vector<uint8_t> buf;
+				{
+					std::lock_guard<std::mutex> l(mtx);
+					if ((int)ready.size() >= kAhead) buf.clear();
+					else if (!spare.empty()) { buf = std::move(spare.back()); spare.pop_back(); }
+					else buf.assign((size_t)w * h * 4, 255);     // (opaque: plm_frame_to_rgba leaves the alpha bytes as they are)
+					if ((int)ready.size() >= kAhead) { /* full */ }
+				}
+				if (buf.empty()) { std::this_thread::sleep_for(std::chrono::milliseconds(2)); continue; }
+				plm_frame_t* f = plm_decode_video(plm);
+				if (!f) { decodeDone = true; return; }
+				plm_frame_to_rgba(f, buf.data(), w * 4);
+				Frame fr; fr.rgba = std::move(buf); fr.time = f->time; decoded++;
+				std::lock_guard<std::mutex> l(mtx);
+				ready.push_back(std::move(fr));
+			}
+		}
+		// to a time - the soundtrack's play position: the newest decoded frame due by then shown, older ones dropped
+		void UpdateTo(const double target)
+		{
+			if (!plm || finished) return;
+			t = target;
+			Frame show; bool have = false;
+			{
+				std::lock_guard<std::mutex> l(mtx);
+				while (!ready.empty() && ready.front().time <= t + 0.5 / fps)
+				{
+					if (have) spare.push_back(std::move(show.rgba));
+					show = std::move(ready.front()); ready.pop_front(); have = true;
+				}
+				if (ready.empty() && decodeDone && !have) finished = true;
+			}
+			if (have)
+			{
+				tex->UpdateData(show.rgba.data()); shownCount++; lastShownTime = show.time;
+				std::lock_guard<std::mutex> l(mtx);
+				spare.push_back(std::move(show.rgba));
+			}
+		}
+		void Update(const double dt) { UpdateTo(t + dt); }
+	};
+
 	void RegisterLuaMisc(sol::state* lua)
 	{
+		lua->new_usertype<LuaVideo>("VideoPlayer",
+			"new", sol::factories([](const std::string &path) { return std::make_shared<LuaVideo>(path); }),
+			"update", [](LuaVideo &v, const double dt) { v.Update(dt); },
+			"updateTo", [](LuaVideo &v, const double t) { v.UpdateTo(t); },
+			"texture", [](LuaVideo &v) { return v.tex; },
+			"done", [](LuaVideo &v) { return v.finished.load(); },
+			"time", [](LuaVideo &v) { return v.t; },
+			"stats", [](LuaVideo &v) { return std::make_tuple(v.decoded.load(), v.shownCount.load(), v.lastShownTime); },
+			"width", [](LuaVideo &v) { return v.w; },
+			"height", [](LuaVideo &v) { return v.h; });
 		// Seconds on a steady clock, as finely as the machine counts them: for a
 		// script that wants to know how long something of its own took (there is
 		// no os library here). Only differences mean anything.
 		// logSlowFrames("perf.log", 25): every frame of 25 ms or more, with what
 		// took the time, to that file (FrameProfiler::LogSlowFrames). ("", 0) stops.
+		// profileBegin(name) / profileEnd(): a script's own scope in the frame profiler - named in the slow-frame log
+		// (logSlowFrames) beside the engine's, so a stutter in a script says which part of it took the time
+		lua->set_function("profileBegin", [](const std::string &name) { FrameProfiler::Instance().Begin(name.c_str()); });
+		lua->set_function("profileEnd", []() { FrameProfiler::Instance().End(); });
 		lua->set_function("logSlowFrames", [](const std::string &path, const f64 ms) {
 			FrameProfiler::LogSlowFrames(path.c_str(), ms);
 		});
@@ -254,6 +376,13 @@ namespace p3d {
 		lua->set_function("setLODDistanceScale", [](const f32 k) { RenderingComponent::SetLODDistanceScale(k); });
 		// Seconds a change of level of detail takes to dissolve one level into the other (0: at once).
 		lua->set_function("setLODCrossfade", [](const f32 s) { RenderingComponent::SetLODCrossfade(s); });
+		// The next load's screen: setLoadingScreen(title, image) - a picture path as a scene names one - in place of the
+		// game's own look (game.json) until set again; clearLoadingScreen() back to it
+		lua->set_function("setLoadingScreen", [](const std::string &title, sol::optional<std::string> image) { LoadingScreen::SetNextLook(title, image.value_or(std::string())); });
+		lua->set_function("clearLoadingScreen", []() { LoadingScreen::ClearNextLook(); });
+		// automatic impostors (a far object's last level of detail, a baked picture): setAutomaticImpostors(false) - before
+		// loading what shouldn't get one
+		lua->set_function("setAutomaticImpostors", [](const bool on) { ImpostorBank::SetEnabled(on); });
 		lua->set_function("getLODCrossfade", []() { return RenderingComponent::GetLODCrossfade(); });
 		// What the big still things in view hide is not drawn (OcclusionBuffer); on unless said.
 		lua->set_function("setOcclusionCulling", [](const bool on) { OcclusionBuffer::SetEnabled(on); });
@@ -567,7 +696,10 @@ end
 				"F5", Event::Input::Keyboard::F5, "F6", Event::Input::Keyboard::F6,
 				"F7", Event::Input::Keyboard::F7, "F8", Event::Input::Keyboard::F8,
 				"F9", Event::Input::Keyboard::F9, "F10", Event::Input::Keyboard::F10,
-				"F11", Event::Input::Keyboard::F11, "F12", Event::Input::Keyboard::F12
+				"F11", Event::Input::Keyboard::F11, "F12", Event::Input::Keyboard::F12,
+				// (text typed in a game's own field: an address, a number)
+				"Period", Event::Input::Keyboard::Period, "Comma", Event::Input::Keyboard::Comma,
+				"Dash", Event::Input::Keyboard::Dash
 			);
 			lua->new_enum("MouseButton",
 				"Left", Event::Input::Mouse::Left,
@@ -688,6 +820,31 @@ end
 				return v < 0.f ? -k : k;
 			});
 			g.set_function("count", []() { uint32 n = 0; for (uint32 i = 0; i < 8; i++) if (InputManager::IsJoypadConnected(i)) n++; return n; });
+		}
+
+		// Raw joysticks: wheels, pedal sets, shifters, button boxes (and gamepads
+		// again, as their devices number them). A device is a slot 0-7; axes,
+		// buttons and hats are 0-based as the device reports them. An axis is
+		// -1..1 raw (no dead zone: a pedal at rest reads -1 or +1, calibrate).
+		//
+		//   for i = 0, 7 do if joystick.isConnected(i) then echo(joystick.name(i)) end end
+		//   local steer = joystick.axis(0, 0)
+		//   joystick.setForce(0, -0.3)      -- constant force feedback, -1..1, held until set again
+		{
+			sol::table j = lua->create_named_table("joystick");
+			j.set_function("isConnected", [](const uint32 id) { return InputManager::IsJoystickConnected(id); });
+			j.set_function("name", [](const uint32 id) { return InputManager::GetJoystickName(id); });
+			j.set_function("guid", [](const uint32 id) { return InputManager::GetJoystickGUID(id); });
+			j.set_function("axisCount", [](const uint32 id) { return InputManager::GetJoystickAxisCount(id); });
+			j.set_function("buttonCount", [](const uint32 id) { return InputManager::GetJoystickButtonCount(id); });
+			j.set_function("hatCount", [](const uint32 id) { return InputManager::GetJoystickHatCount(id); });
+			j.set_function("axis", [](const uint32 id, const uint32 axis) { return InputManager::GetJoystickAxis(id, axis); });
+			j.set_function("isDown", [](const uint32 id, const uint32 button) { return InputManager::IsJoystickButtonDown(id, button); });
+			j.set_function("hat", [](const uint32 id, const uint32 hat) { return InputManager::GetJoystickHat(id, hat); });
+			j.set_function("hasForceFeedback", [](const uint32 id) { return InputManager::JoystickHasForceFeedback(id); });
+			j.set_function("setForce", [](const uint32 id, const f32 force) { InputManager::SetJoystickForce(id, force); });
+			j.set_function("force", [](const uint32 id) { return InputManager::GetJoystickForce(id); });
+			j.set_function("count", []() { uint32 n = 0; for (uint32 i = 0; i < InputManager::MaxJoysticks; i++) if (InputManager::IsJoystickConnected(i)) n++; return n; });
 		}
 
 		// Cloth: the mesh an object renders, simulated (ClothComponent). From a scene it is a
@@ -1273,6 +1430,36 @@ end
 			}
 			return true;
 		};
+#ifndef EMSCRIPTEN
+		// udp: datagrams out to a host and port - for telemetry other programs read (a race engineer app's
+		// "network data" mode, a dash on another machine). Send only; through ENet's sockets, so the same on
+		// every desktop. udp.open(host, port) -> id or nil; udp.send(id, bytes) -> ok; udp.close(id)
+		{
+			struct UdpOut { ENetSocket sock; ENetAddress addr; };
+			static std::map<int, UdpOut> g_udp; static int g_udpNext = 1; static bool g_udpInit = false;
+			sol::table udp = lua->create_named_table("udp");
+			udp.set_function("open", [](const std::string &host, const int port) -> sol::optional<int> {
+				if (!g_udpInit) { if (enet_initialize() != 0) return sol::nullopt; g_udpInit = true; }
+				UdpOut u;
+				if (enet_address_set_host(&u.addr, host.c_str()) != 0) return sol::nullopt;
+				u.addr.port = (enet_uint16)port;
+				u.sock = enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM);
+				if (u.sock == ENET_SOCKET_NULL) return sol::nullopt;
+				enet_socket_set_option(u.sock, ENET_SOCKOPT_NONBLOCK, 1);
+				enet_socket_set_option(u.sock, ENET_SOCKOPT_BROADCAST, 1);
+				const int id = g_udpNext++; g_udp[id] = u; return id;
+			});
+			udp.set_function("send", [](const int id, const std::string &data) -> bool {
+				auto it = g_udp.find(id); if (it == g_udp.end()) return false;
+				ENetBuffer b; b.data = (void*)data.data(); b.dataLength = data.size();
+				return enet_socket_send(it->second.sock, &it->second.addr, &b, 1) == (int)data.size();
+			});
+			udp.set_function("close", [](const int id) {
+				auto it = g_udp.find(id); if (it == g_udp.end()) return;
+				enet_socket_destroy(it->second.sock); g_udp.erase(it);
+			});
+		}
+#endif
 		sol::table store = lua->create_named_table("store");
 #ifdef EMSCRIPTEN
 		// A page's files are gone when it is closed: in a browser the same
@@ -1338,6 +1525,55 @@ end
 			std::stringstream ss;
 			ss << in.rdbuf();
 			return sol::make_object(L, ss.str());
+		});
+		// store.programPath(name) / store.programAppend(name, text): a file beside the program itself - where PyrosLog.txt is on
+		// Windows, what a player finds without hunting in AppData (a performance log: "it always was next to the exe").
+		// Elsewhere the store's folder.
+		const auto programDir = [dir]() -> std::filesystem::path {
+#ifdef _WIN32
+			char p[MAX_PATH] = {};
+			const DWORD n = GetModuleFileNameA(NULL, p, MAX_PATH);
+			if (n > 0 && n < MAX_PATH) return std::filesystem::path(p).parent_path();
+#endif
+			return dir;
+		};
+		store.set_function("programPath", [programDir, safe](const std::string &name, sol::this_state ts) -> sol::object {
+			sol::state_view L(ts);
+			if (!safe(name)) return sol::make_object(L, sol::lua_nil);
+			return sol::make_object(L, (programDir() / name).string());
+		});
+		store.set_function("programWrite", [programDir, safe](const std::string &name, const std::string &text) {
+			if (!safe(name)) return false;
+			std::ofstream out((programDir() / name).string().c_str(), std::ios::binary | std::ios::trunc);
+			if (!out.is_open()) return false;
+			out << text;
+			return out.good();
+		});
+		store.set_function("programAppend", [programDir, safe](const std::string &name, const std::string &text) {
+			if (!safe(name)) return false;
+			std::ofstream out((programDir() / name).string().c_str(), std::ios::binary | std::ios::app);
+			if (!out.is_open()) return false;
+			out << text;
+			return out.good();
+		});
+		// store.path(name): the file's full path in the store - for what the engine writes itself (logSlowFrames); nil for
+		// a name that is not a plain file name
+		store.set_function("path", [dir, safe](const std::string &name, sol::this_state ts) -> sol::object {
+			sol::state_view L(ts);
+			if (!safe(name)) return sol::make_object(L, sol::lua_nil);
+			std::error_code ec;
+			std::filesystem::create_directories(dir, ec);
+			return sol::make_object(L, (dir / name).string());
+		});
+		// store.append(name, text): onto its end - a log, a line at a time (no .tmp/.bak: a cut-off line is all it loses)
+		store.set_function("append", [dir, safe](const std::string &name, const std::string &text) {
+			if (!safe(name)) return false;
+			std::error_code ec;
+			std::filesystem::create_directories(dir, ec);
+			std::ofstream out((dir / name).string().c_str(), std::ios::binary | std::ios::app);
+			if (!out.is_open()) return false;
+			out << text;
+			return out.good();
 		});
 		// Written whole or not at all: to a ".tmp" beside it, flushed, then put in its place - a
 		// crash or a power cut mid-save left half a file, and the game's save was gone. The one

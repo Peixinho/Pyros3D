@@ -502,6 +502,12 @@ namespace p3d {
 			return true;
 		}
 		if (Meshes.size() != 1) return false;
+		// (a model that cannot be simplified - loose cards, a crowd's people: SimplifiedModel keeps it as it is - gets no
+		// levels: each would be the model again, crossfaded into itself)
+		{
+			const std::shared_ptr<SimplifiedModel> lightest = SimplifiedModel::LoadShared(model->GetPath(), kRatio[0]);
+			if (lightest && lightest->GetTriangleCount() * 10 > lightest->GetSourceTriangleCount() * 9) return false;
+		}
 		SetFirstLODDistance(first);
 		for (int l = 0; l < 3; l++)
 		{
@@ -600,7 +606,10 @@ namespace p3d {
 	bool RenderingComponent::SetShadowDetail(const f32 ratio)
 	{
 		shadowDetail = 0.f;
-		if (ratio <= 0.f || ratio >= 0.999f) { SetShadowRenderable(std::shared_ptr<Renderable>()); return true; }
+		// (1: casts itself, asked for - kept so: the levels made later gave it a quarter after all. A car's wheel cast a
+		// quarter of its triangles - a spiky blot that turned as the wheel did)
+		if (ratio >= 0.999f) { SetShadowRenderable(std::shared_ptr<Renderable>()); shadowDetail = 1.f; return true; }
+		if (ratio <= 0.f) { SetShadowRenderable(std::shared_ptr<Renderable>()); return true; }
 		Model* model = dynamic_cast<Model*>(renderable.get());
 		if (!model || model->GetPath().empty()) { SetShadowRenderable(std::shared_ptr<Renderable>()); return false; }
 		SetShadowRenderable(SimplifiedModel::LoadShared(model->GetPath(), ratio));

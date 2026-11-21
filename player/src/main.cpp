@@ -180,8 +180,11 @@ int main(int argc, char** argv)
 	if (const char* q = std::getenv("PYROS_QUIT_AFTER")) quitAfter = std::atof(q);
 	const std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
 
+	// (PYROS_QUIT_FRAMES=<n>: closes after n frames - with PYROS_SIM_STEP, after n steps of simulated time)
+	long long quitFrames = std::getenv("PYROS_QUIT_FRAMES") ? std::atoll(std::getenv("PYROS_QUIT_FRAMES")) : 0, frameCount = 0;
 	while (game->IsRunning())
 	{
+		if (quitFrames > 0 && ++frameCount > quitFrames) { quitFrames = 0; game->Close(); }
 		if (quitAfter > 0.0 && std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count() > quitAfter)
 		{
 			quitAfter = 0.0;

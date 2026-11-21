@@ -167,9 +167,15 @@ namespace p3d { namespace gfx {
 		struct Slots { std::map<uint32_t, uint32_t> buffer, texture, sampler; int rayScene = -1; };     // (group 1 binding -> this stage's Metal index; rayScene: where its accelerationStructureEXT is, -1 none)
 		struct RayGeometryRec { id<MTLAccelerationStructure> accel = nil; };
 		struct ShaderRec { id<MTLFunction> function = nil; Stage stage = Stage::Vertex; MTLSize threads = MTLSizeMake(64, 1, 1); bool usesDrawData = false; Slots slots; std::string error; };
+		// (what Metal's compiler threads hand back, held apart from the pool, as the state is: the completion wrote it through
+		// pipelines.Get(id) - from another thread, without the pool's lock, while the render thread added pipelines - and
+		// the record kept nil while its state said ready: setRenderPipelineState(nil) in the depth prepass, EXC_BAD_ACCESS
+		// at 0x404 inside Apple's driver, a session now and then. A removed id given to a new pipeline would also have
+		// taken the old one's result)
+		struct PipelineOut { id<MTLRenderPipelineState> render = nil; id<MTLComputePipelineState> compute = nil; };
 		struct PipelineRec {
 			std::shared_ptr<std::atomic<int>> state = std::make_shared<std::atomic<int>>(0);    // 0 compiling, 1 ready, 2 failed
-			id<MTLRenderPipelineState> render = nil; id<MTLComputePipelineState> compute = nil;
+			std::shared_ptr<PipelineOut> out = std::make_shared<PipelineOut>();                  // (written before state says 1)
 			id<MTLDepthStencilState> depth = nil;
 			MTLCullMode cull = MTLCullModeBack; MTLWinding winding = MTLWindingCounterClockwise; MTLPrimitiveType primitive = MTLPrimitiveTypeTriangle;
 			float biasConstant = 0.f, biasSlope = 0.f;
@@ -764,6 +770,7 @@ namespace p3d { namespace gfx {
 					NSError* err = nil;
 					MTLCompileOptions* co = [MTLCompileOptions new];
 					co.mathMode = MTLMathModeFast;
+					co.preserveInvariance = YES;     // (a stage's `invariant gl_Position` kept, as Vulkan keeps it: surface.vert)
 					id<MTLLibrary> lib = [device newLibraryWithSource:@(source.c_str()) options:co error:&err];
 					if (!lib) { r.error = err ? [[err localizedDescription] UTF8String] : "?"; fprintf(stderr, "Metal device: shader %s: %s\n", d.debugName ? d.debugName : "", r.error.c_str()); }
 					else
@@ -827,7 +834,8 @@ namespace p3d { namespace gfx {
 				if (d.debugName) pd.label = @(d.debugName);
 				pipelinesPending++;
 				std::shared_ptr<std::atomic<int>> state = pr->state;
-				MetalDevice* self = this; const uint32_t pid = p.id;
+				std::shared_ptr<PipelineOut> out = pr->out;
+				MetalDevice* self = this;
 				const std::string dbg = d.debugName ? d.debugName : "";
 				// (on Metal's own compiler threads: the draw asks PipelineReady and skips until then. Asked again - a few
 				// times, a moment apart - where Apple's compiler service itself went away (XPC_ERROR_CONNECTION_INTERRUPTED: it
@@ -850,7 +858,7 @@ namespace p3d { namespace gfx {
 								return;
 							}
 						}
-						if (PipelineRec* q = self->pipelines.Get(pid)) q->render = ps;
+						out->render = ps;
 						if (!ps) fprintf(stderr, "Metal device: pipeline %s: %s\n", dbg.c_str(), why.c_str());
 						state->store(ps ? 1 : 2);
 						self->pipelinesPending--; self->pipelinesFinished++;
@@ -870,9 +878,10 @@ namespace p3d { namespace gfx {
 				if (!cs || !cs->function) { pr->state->store(2); return p; }
 				pipelinesPending++;
 				std::shared_ptr<std::atomic<int>> state = pr->state;
-				MetalDevice* self = this; const uint32_t pid = p.id;
+				std::shared_ptr<PipelineOut> out = pr->out;
+				MetalDevice* self = this;
 				[device newComputePipelineStateWithFunction:cs->function completionHandler:^(id<MTLComputePipelineState> ps, NSError* err) {
-					if (PipelineRec* q = self->pipelines.Get(pid)) q->compute = ps;
+					out->compute = ps;
 					if (!ps) fprintf(stderr, "Metal device: compute pipeline: %s\n", err ? [[err localizedDescription] UTF8String] : "?");
 					state->store(ps ? 1 : 2);
 					self->pipelinesPending--; self->pipelinesFinished++;
@@ -954,6 +963,10 @@ namespace p3d { namespace gfx {
 				Texture t; t.id = backbufferId; return t;
 			}
 			void ResizeSurface(uint32_t w, uint32_t h) override { layer.drawableSize = CGSizeMake(w, h); }
+			void SetVSync(bool on) override { layer.displaySyncEnabled = on; }
+			bool VSync() const override { return layer.displaySyncEnabled; }
+			std::mutex shotMutex; std::string shotRequest;     // (RequestScreenshot: a game's own picture)
+			bool RequestScreenshot(const std::string &path) override { std::lock_guard<std::mutex> lk(shotMutex); shotRequest = path; return true; }
 			void Present() override
 			{
 				// (the frame's last command buffer: shows the drawable once everything before it on the queue is done,
@@ -964,7 +977,20 @@ namespace p3d { namespace gfx {
 				// what was drawn without a screen capture)
 				id<MTLBuffer> shot = nil; uint32_t sw = 0, sh = 0;
 				const char* shotPath = getenv("PYROS_SHOT");
-				if (drawable && frameNumber == ShotFrame() && shotPath)
+				// (PYROS_SHOT_COUNT=n: n frames from it on, one after another - <file>_1.png, _2.png ... - to see what changes between)
+				static const uint64_t shotCount = getenv("PYROS_SHOT_COUNT") ? std::max<uint64_t>(1, (uint64_t)atoll(getenv("PYROS_SHOT_COUNT"))) : 1;
+				std::string shotName;
+				// (PYROS_SHOT_EVERY=k: every k-th frame of those n - a lap's worth of pictures in one run)
+				static const uint64_t shotEvery = getenv("PYROS_SHOT_EVERY") ? std::max<uint64_t>(1, (uint64_t)atoll(getenv("PYROS_SHOT_EVERY"))) : 1;
+				if (shotPath && shotCount > 1 && frameNumber >= ShotFrame() && frameNumber < ShotFrame() + shotCount * shotEvery && (frameNumber - ShotFrame()) % shotEvery == 0)
+				{
+					std::string base = shotPath; const size_t dot = base.rfind('.');
+					shotName = (dot == std::string::npos ? base : base.substr(0, dot)) + "_" + std::to_string((frameNumber - ShotFrame()) / shotEvery + 1) + ".png";
+				}
+				else if (shotPath && frameNumber == ShotFrame()) shotName = shotPath;
+				// (or a picture the game asked for - RequestScreenshot: this frame, under the name it gave)
+				if (shotName.empty()) { std::lock_guard<std::mutex> lk(shotMutex); shotName.swap(shotRequest); }
+				if (drawable && !shotName.empty())
 				{
 					sw = (uint32_t)drawable.texture.width; sh = (uint32_t)drawable.texture.height;
 					const uint32_t bpp = hdrOutput ? 8 : 4;
@@ -1045,7 +1071,7 @@ namespace p3d { namespace gfx {
 					CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
 					CGContextRef ctx = CGBitmapContextCreate(px, sw, sh, 8, sw * 4, cs, kCGImageAlphaNoneSkipLast);
 					CGImageRef img = CGBitmapContextCreateImage(ctx);
-					CFURLRef url = CFURLCreateFromFileSystemRepresentation(nullptr, (const UInt8*)shotPath, strlen(shotPath), false);
+					CFURLRef url = CFURLCreateFromFileSystemRepresentation(nullptr, (const UInt8*)shotName.c_str(), shotName.size(), false);
 					CGImageDestinationRef dst = CGImageDestinationCreateWithURL(url, kUTTypePNG, 1, nullptr);
 					if (dst) { CGImageDestinationAddImage(dst, img, nullptr); CGImageDestinationFinalize(dst); CFRelease(dst); }
 					CFRelease(url); CGImageRelease(img); CGContextRelease(ctx); CGColorSpaceRelease(cs);
@@ -1124,9 +1150,9 @@ namespace p3d { namespace gfx {
 			current = r; lPipelines++;
 			skipping = !r || r->state->load() != 1;
 			if (skipping) return;
-			if (r->isCompute) { [Compute() setComputePipelineState:r->compute]; dev->BindRayScene(nil, Compute(), r->vertexSlots.rayScene); return; }
+			if (r->isCompute) { [Compute() setComputePipelineState:r->out->compute]; dev->BindRayScene(nil, Compute(), r->vertexSlots.rayScene); return; }
 			if (!render) { skipping = true; return; }
-			[render setRenderPipelineState:r->render];
+			[render setRenderPipelineState:r->out->render];
 			dev->BindRayScene(render, nil, r->fragmentSlots.rayScene);
 			[render setDepthStencilState:r->depth];
 			[render setCullMode:r->cull];
@@ -1238,7 +1264,7 @@ namespace p3d { namespace gfx {
 		{
 			if (skipping || !current || !current->isCompute) { lSkipped++; return; }
 			id<MTLComputeCommandEncoder> ce = Compute();
-			[ce setComputePipelineState:current->compute];
+			[ce setComputePipelineState:current->out->compute];
 			if (haveDrawData) [ce setBuffer:dev->drawRing offset:drawOffset atIndex:kDrawDataIndex];
 			[ce dispatchThreadgroups:MTLSizeMake(x, y, z) threadsPerThreadgroup:current->threads];
 			lDispatches++;
@@ -1249,7 +1275,7 @@ namespace p3d { namespace gfx {
 			BufferRec* a = dev->buffers.Get(args.id);
 			if (!a) return;
 			id<MTLComputeCommandEncoder> ce = Compute();
-			[ce setComputePipelineState:current->compute];
+			[ce setComputePipelineState:current->out->compute];
 			if (haveDrawData) [ce setBuffer:dev->drawRing offset:drawOffset atIndex:kDrawDataIndex];
 			[ce dispatchThreadgroupsWithIndirectBuffer:a->buffer indirectBufferOffset:offset threadsPerThreadgroup:current->threads];
 			lDispatches++;

@@ -226,7 +226,7 @@ namespace p3d { namespace gfx {
 			WGPUSurface surface = nullptr; WGPUTextureFormat surfaceFormat = WGPUTextureFormat_BGRA8Unorm, viewFormat = WGPUTextureFormat_BGRA8UnormSrgb;
 			bool hdrOutput = false;     // (the surface half floats in extended linear sRGB: PYROS_HDR)
 			float OutputHeadroom() const override { return hdrOutput ? DisplayHeadroom() : 1.f; }
-			uint32_t width = 0, height = 0; bool vsync = true, threadSafe = false; WGPUPresentMode presentMode = WGPUPresentMode_Fifo;
+			uint32_t width = 0, height = 0; bool vsync = true, threadSafe = false; WGPUPresentMode presentMode = WGPUPresentMode_Fifo, unsyncMode = WGPUPresentMode_Fifo;     // (unsyncMode: the surface's best without vsync)
 			Capabilities caps;
 			Pool<WGPUBuffer> buffers; Pool<TextureRec> textures; Pool<WGPUSampler> samplers; Pool<ShaderRec> shaders;
 			Pool<PipelineRec*> pipelines; Pool<WGPUBindGroup> groups;
@@ -298,6 +298,8 @@ namespace p3d { namespace gfx {
 			Texture AcquireBackbuffer() override;
 			void Present() override;
 			void ResizeSurface(uint32_t w, uint32_t h) override { if (w == width && h == height) return; width = w; height = h; Configure(); }
+			void SetVSync(bool on) override { if (on == vsync) return; vsync = on; presentMode = on ? WGPUPresentMode_Fifo : unsyncMode; Configure(); }
+			bool VSync() const override { return vsync; }
 			void EndFrame() override {}
 			double GpuMilliseconds(QueryPool, uint32_t, uint32_t) override { return 0.0; }
 
@@ -551,13 +553,13 @@ namespace p3d { namespace gfx {
 				else fprintf(stderr, "WebGPU device: HDR asked for, but the surface has no RGBA16Float - SDR\n");
 			}
 			// (unsynchronised when asked, where the surface has it: immediate, else mailbox)
-			presentMode = WGPUPresentMode_Fifo;
-			if (!s.vsync)
-				for (size_t i = 0; i < sc.presentModeCount; i++)
-				{
-					if (sc.presentModes[i] == WGPUPresentMode_Immediate) { presentMode = WGPUPresentMode_Immediate; break; }
-					if (sc.presentModes[i] == WGPUPresentMode_Mailbox) presentMode = WGPUPresentMode_Mailbox;
-				}
+			unsyncMode = WGPUPresentMode_Fifo;
+			for (size_t i = 0; i < sc.presentModeCount; i++)
+			{
+				if (sc.presentModes[i] == WGPUPresentMode_Immediate) { unsyncMode = WGPUPresentMode_Immediate; break; }
+				if (sc.presentModes[i] == WGPUPresentMode_Mailbox) unsyncMode = WGPUPresentMode_Mailbox;
+			}
+			presentMode = s.vsync ? WGPUPresentMode_Fifo : unsyncMode;
 			caps.name += presentMode == WGPUPresentMode_Immediate ? ", present immediate" : presentMode == WGPUPresentMode_Mailbox ? ", present mailbox" : ", present fifo (vsync)";
 			wgpuSurfaceCapabilitiesFreeMembers(sc);
 			width = s.width; height = s.height; vsync = s.vsync;

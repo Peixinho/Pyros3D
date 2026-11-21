@@ -1,3 +1,4 @@
+#include <unordered_map>
 //============================================================================
 // Name        : SceneRenderer.cpp
 // Author      : Duarte Peixinho
@@ -668,13 +669,17 @@ namespace p3d {
 #endif
 
 		const uint32 kFramesInFlight = 3;
+		const uint32 kCloudShadowSize = 1024;     // (the clouds' shadow map, texels a side)
 		const uint32 kFrameDataSlot = 1024;       // (a uniform buffer's dynamic offset: 256-byte aligned everywhere)
 		const gfx::Format kHdrFormat = gfx::Format::RGBA16F, kDepthFormat = gfx::Format::D32F;
 		// (MSAA: geometric edges in the scene pass itself - none by default, the temporal AA has the edges; PYROS_MSAA=2|4
 		// for it. Four samples under the TAA were 27 ms of the Scene pass's on an M3 against 17 without - at 4K most of
 		// the frame - for edges the TAA was smoothing anyway)
 		uint8 SceneSamplesWanted() { const char* e = getenv("PYROS_MSAA"); const int n = e ? atoi(e) : 1; return (uint8)(n >= 4 ? 4 : (n >= 2 ? 2 : 1)); }
-		const uint8 kSceneSamples = SceneSamplesWanted();
+		// (read when the renderer first needs it, not when the library loads: a game's player sets PYROS_MSAA from its
+		// project's "msaa" before that)
+		uint8 SceneSamples() { static const uint8 n = SceneSamplesWanted(); return n; }
+#define kSceneSamples SceneSamples()
 
 		// std140, as common.glsl's FrameData
 		struct FrameData
@@ -699,6 +704,7 @@ namespace p3d {
 			f32 skySunTop[4];                   // (the sky sun's illuminance above the air, w 1: RenderGlobals::SkySunLight; w 0 - the light's)
 			f32 lens[4];                        // (the screen's lens on this view: centre xy 0..1, z radius - a share of the height, 0 none)
 			f32 haze[4];                        // (the haze layer - RenderGlobals::HazeLayer, x per metre; 0 without a sky, whose colour it takes)
+			f32 cloudLight[4];                  // (rgb: the sun on the clouds' tops, through the air alone; w: how much of a deck they are)
 		};
 		// std140, as surface_draw.glsl's DrawData
 		struct DrawData
@@ -774,9 +780,15 @@ namespace p3d {
 		const uint32 kCascades = 4, kShadowAtlasW = 8192, kShadowAtlasH = 4096, kCascadeSize = kShadowAtlasH / 2;
 		const uint32 kSoftwareRayTriangles = 1500000;     // (the most the shaders' own BVH walk is given: past it, the shadow maps and SSR)
 		const uint32 kLocalTile = 512, kLocalTiles = 64, kLocalTilesAcross = (kShadowAtlasW / 2) / kLocalTile;
-		const uint32 kShadowSlots = kCascades + kLocalTiles;     // (each a 256-byte slot of the shadow pass's matrices)
+		// (the focus shadow - DirectionalLight::SetShadowFocus: a 2048 square of the atlas's right half, its lower left; the
+		// local tiles keep its upper half while it is on - 32 of them)
+		const uint32 kFocusSize = 2048, kFocusLocalTiles = 32;
+		const uint32 kShadowSlots = kCascades + kLocalTiles + 1;     // (each a 256-byte slot of the shadow pass's matrices; the last the focus's)
+		const uint32 kFocusSlot = kCascades + kLocalTiles;
 		const uint32 kShadowDataSlot = 6144;
-		const gfx::Format kShadowFormat = gfx::Format::D16;     // (an orthographic depth: linear, 16 bits are plenty - half the bandwidth)
+		// (32-bit: a cascade's depth runs from the nearest caster in the scene to the farthest - kilometres on a circuit - and
+		// 16 bits of that were centimetres: a car's floor and the road under it one depth, its shadow full of holes that moved)
+		const gfx::Format kShadowFormat = gfx::Format::D32F;
 		struct ShadowData        // std140, as shadows.glsl's
 		{
 			f32 cascades[4][16];
@@ -790,6 +802,8 @@ namespace p3d {
 			f32 cloudGrid[4];
 			f32 reflections[4];
 			f32 rain[4];
+			f32 focus[16];          // world -> the focus shadow's clip space
+			f32 focusParams[4];     // x: on (1) or off, y: its texel in world units
 		};
 		static_assert(sizeof(ShadowData) <= kShadowDataSlot, "ShadowData must fit its slot");
 		struct ShadowDrawData { f32 model[16]; f32 uvTransform[4]; f32 alpha[4]; f32 skin[4]; f32 wind[4]; f32 shape[4]; };     // (as shadow.vert's)
@@ -924,7 +938,7 @@ namespace p3d {
 		add("Temporal history A", taaTex[0], ow, oh); add("Temporal history B", taaTex[1], ow, oh);
 		add("Sky view", skyView, 192, 108); add("Sky view with clouds", skyViewClouded, 192, 108); add("Transmittance", transmittance, 256, 64);
 		add("Reflection probes", probeAtlas, kProbeColumns * kProbeBlockWidth, kProbeRows * kProbeBlockHeight);
-		add("Clouds A", cloudTex[0], hw, hh); add("Clouds B", cloudTex[1], hw, hh); add("Clouds' shadow", cloudShadowTex, 256, 256);
+		add("Clouds A", cloudTex[0], hw, hh); add("Clouds B", cloudTex[1], hw, hh); add("Clouds' shadow", cloudShadowTex, kCloudShadowSize, kCloudShadowSize);
 		return t;
 	}
 
@@ -1062,6 +1076,7 @@ namespace p3d {
 			device->Destroy(i->second.indices);
 			if (i->second.colors) device->Destroy(i->second.colors);
 			if (i->second.skin) device->Destroy(i->second.skin);
+			if (i->second.sided) device->Destroy(i->second.sided);
 		}
 		for (std::map<std::array<uint32_t, 5>, gfx::BindGroup>::iterator i = surfaceGroups.begin(); i != surfaceGroups.end(); ++i) device->Destroy(i->second);
 		for (std::map<std::pair<Texture*, bool>, TextureGpu>::iterator i = textures.begin(); i != textures.end(); ++i) { if (i->second.texture) device->Destroy(i->second.texture); if (i->second.placeholder) device->Destroy(i->second.placeholder); }
@@ -1267,6 +1282,18 @@ namespace p3d {
 		device->Destroy(t);
 	}
 
+	static std::atomic<uint32> g_textureMipSkip(0);
+	void SceneRenderer::SetTextureMipSkip(const uint32 levels) { g_textureMipSkip.store(std::min(levels, 4u)); }
+	uint32 SceneRenderer::GetTextureMipSkip() { return g_textureMipSkip.load(); }
+	// (how many of a chain's first levels are left out: what is asked, while the map stays 256 on its long side and -
+	// in blocks - whole blocks)
+	static uint32 MipSkipFor(const uint32 w, const uint32 h, const size_t levels, const bool blocks)
+	{
+		uint32 skip = std::min(g_textureMipSkip.load(), levels > 0 ? (uint32)levels - 1 : 0u);
+		while (skip > 0 && ((std::max(w, h) >> skip) < 256u || (blocks && (((w >> skip) % 4) != 0 || ((h >> skip) % 4) != 0)))) skip--;
+		return skip;
+	}
+
 	gfx::Texture SceneRenderer::TextureFor(Texture* source, const bool srgb, const gfx::Texture fallback, const bool deferrable)
 	{
 		if (!source) return fallback;
@@ -1414,9 +1441,10 @@ namespace p3d {
 				&& blocks.size() <= maxMips && blocks[0].size() == (size_t)((w + 3) / 4) * ((h + 3) / 4) * (blockFormat == 1 ? 8u : 16u);
 			if (chainOk)     // (BlockCompress: 1 BC1, 2 BC3)
 			{
-				std::vector<gfx::TextureData> data(blocks.size());
-				for (size_t i = 0; i < blocks.size(); i++) { data[i].mip = (uint32_t)i; data[i].bytes = blocks[i].data(); data[i].size = blocks[i].size(); }
-				gfx::TextureDesc t; t.width = w; t.height = h; t.mips = (uint32_t)blocks.size();
+				const uint32 skip = MipSkipFor(w, h, blocks.size(), true);     // (texture quality: SetTextureMipSkip)
+				std::vector<gfx::TextureData> data(blocks.size() - skip);
+				for (size_t i = 0; i < data.size(); i++) { data[i].mip = (uint32_t)i; data[i].bytes = blocks[i + skip].data(); data[i].size = blocks[i + skip].size(); }
+				gfx::TextureDesc t; t.width = std::max(1u, w >> skip); t.height = std::max(1u, h >> skip); t.mips = (uint32_t)data.size();
 				t.format = blockFormat == 1 ? (srgb ? gfx::Format::BC1_sRGB : gfx::Format::BC1) : blockFormat == 3 ? gfx::Format::BC5 : (srgb ? gfx::Format::BC3_sRGB : gfx::Format::BC3);
 				t.usage = gfx::TexSampled; t.debugName = "Renderer.Material (blocks)";
 				if (g.texture) ForgetTexture(g.texture);
@@ -1430,6 +1458,23 @@ namespace p3d {
 		// with its whole chain down to 1x1
 		const size_t texels = (size_t)w * h, channels = pixels->size() / texels;
 		if (channels < 1 || channels > 4 || pixels->size() != texels * channels) return g.texture ? g.texture : fallback;
+		// (a picture without mips rewritten as it plays - a film's frames: level 0 alone, into the texture it has while its
+		// size holds. Each frame its whole chain halved on the CPU and a new texture made: 26 ms a frame for a 2560 film)
+		if (channels == 4 && !source->IsMipmapped() && source->GetFilename().empty())
+		{
+			gfx::TextureData d; d.mip = 0; d.bytes = pixels->data(); d.size = pixels->size();
+			if (g.texture && g.floatW == w && g.floatH == h && g.flat) device->Upload(g.texture, &d, 1);
+			else
+			{
+				gfx::TextureDesc t; t.width = w; t.height = h; t.mips = 1;
+				t.format = srgb ? gfx::Format::RGBA8_sRGB : gfx::Format::RGBA8; t.usage = gfx::TexSampled; t.debugName = "Renderer.Material (no mips)";
+				if (g.texture) ForgetTexture(g.texture);
+				g.texture = MakeTexture(t, &d, 1);
+				g.floatW = w; g.floatH = h; g.flat = true;
+			}
+			g.revision = source->GetCpuRevision();
+			return g.texture ? g.texture : fallback;
+		}
 		auto makeChain = [](const std::vector<uchar> &px, const size_t channels, const uint32 w, const uint32 h, const bool srgb) {
 			const size_t texels = (size_t)w * h;
 			std::vector<uchar> rgba;
@@ -1488,9 +1533,11 @@ namespace p3d {
 			mips = std::move(got->mips);
 		}
 		else mips = makeChain(*pixels, channels, w, h, srgb);
-		std::vector<gfx::TextureData> data(mips.size());
-		for (size_t i = 0; i < mips.size(); i++) { data[i].mip = (uint32_t)i; data[i].bytes = mips[i].data(); data[i].size = mips[i].size(); }
-		gfx::TextureDesc t; t.width = w; t.height = h; t.mips = (uint32_t)mips.size();
+		// (texture quality: a material's map only - a screen's picture, a font, a map the game draws stay whole)
+		const uint32 skip = source->wantsBlocks ? MipSkipFor(w, h, mips.size(), false) : 0u;
+		std::vector<gfx::TextureData> data(mips.size() - skip);
+		for (size_t i = 0; i < data.size(); i++) { data[i].mip = (uint32_t)i; data[i].bytes = mips[i + skip].data(); data[i].size = mips[i + skip].size(); }
+		gfx::TextureDesc t; t.width = std::max(1u, w >> skip); t.height = std::max(1u, h >> skip); t.mips = (uint32_t)data.size();
 		t.format = srgb ? gfx::Format::RGBA8_sRGB : gfx::Format::RGBA8; t.usage = gfx::TexSampled; t.debugName = "Renderer.Material";
 		if (g.texture) ForgetTexture(g.texture);
 		g.texture = MakeTexture(t, data.data(), (uint32_t)data.size());
@@ -1583,6 +1630,16 @@ namespace p3d {
 		// light six
 		localTiles.clear();
 		rainTile = -1;
+		// (a sun with a focus shadow takes the lower half of the local tiles' square)
+		localCap = kLocalTiles;
+		if (scene)
+			for (IComponent* c : scene->GetLights())
+				if (c && c->GetComponentType() == ComponentType::DirectionalLight)
+				{
+					DirectionalLight* sunL = static_cast<DirectionalLight*>(c);
+					if (sunL->IsCastingShadows() && sunL->GetShadowFocusRadius() > 0.f) localCap = kFocusLocalTiles;
+					break;
+				}
 		std::map<IComponent*, int> firstTile;
 		if (scene)
 		{
@@ -1604,7 +1661,7 @@ namespace p3d {
 				IComponent* c = w.second;
 				const bool point = c->GetComponentType() == ComponentType::PointLight;
 				const uint32 faces = point ? 6 : 1;
-				if (localTiles.size() + faces > kLocalTiles) continue;
+				if (localTiles.size() + faces > localCap) continue;
 				const Matrix &world = c->GetOwner()->GetDrawWorld();
 				const Vec3 p = world.GetTranslation();
 				const f32 radius = point ? static_cast<PointLight*>(c)->GetLightRadius() : static_cast<SpotLight*>(c)->GetLightRadius();
@@ -1655,7 +1712,7 @@ namespace p3d {
 					if (!c || c->GetComponentType() != ComponentType::DirectionalLight) continue;
 					if (first) { first = false; continue; }
 					DirectionalLight* dl = static_cast<DirectionalLight*>(c);
-					if (!dl->IsCastingShadows() || localTiles.size() >= kLocalTiles) continue;
+					if (!dl->IsCastingShadows() || localTiles.size() >= localCap) continue;
 					Vec3 toLight;
 					dl->GetLightRadianceNow(&toLight);
 					const Vec3 forward = (toLight * -1.f).normalize();
@@ -1688,7 +1745,7 @@ namespace p3d {
 			}
 			// While it rains: one more tile, looking straight down round the eye (orthographic, 120 m a side, its centre
 			// snapped to its texels so it does not crawl) - what has a roof over it stays dry (RainExposure, shadows.glsl)
-			if (RenderGlobals::Rain() > 0.f && localTiles.size() < kLocalTiles)
+			if (RenderGlobals::Rain() > 0.f && localTiles.size() < localCap)
 			{
 				const f32 half = 60.f, texel = 2.f * half / kLocalTile, top = 150.f, depth = 400.f;
 				const Vec3 p(std::floor(eye.x / texel) * texel, eye.y + top, std::floor(eye.z / texel) * texel);
@@ -1727,6 +1784,7 @@ namespace p3d {
 			for (Vec4 &q : lightPlanes) { const f32 len = Vec3(q.x, q.y, q.z).magnitude(); if (len > 0.f) q = q / len; }
 		}
 		static const bool allLights = getenv("PYROS_ALL_LIGHTS") != nullptr;
+		std::vector<std::pair<f32, uint32>> beamNear;
 		if (scene)
 			for (IComponent* c : scene->GetLights())
 			{
@@ -1758,7 +1816,7 @@ namespace p3d {
 				{
 					SpotLight* s = static_cast<SpotLight*>(c);
 					L.positionRange[3] = s->GetLightRadius();
-					L.radianceType[3] = 1.f;
+					L.radianceType[3] = 1.f + s->GetGroundEven();     // (1: a spot; past it, SpotLight::SetGroundEven's sine - under 0.5)
 					const Vec3 d = (world * Vec4(s->GetLightDirection(), 0.f)).xyz().normalize();
 					L.directionCosOuter[0] = d.x; L.directionCosOuter[1] = d.y; L.directionCosOuter[2] = d.z; L.directionCosOuter[3] = s->GetLightCosOutterCone();
 					L.cosInner[0] = s->GetLightCosInnerCone();
@@ -1768,9 +1826,13 @@ namespace p3d {
 				// (its beam through the air, where it has one: the air's density and the scattering's lobe - beams.frag)
 				L.cosInner[2] = std::max(light->GetVolumetricScattering(), 0.f);
 				L.cosInner[3] = light->GetVolumetricAnisotropy();
-				if (L.cosInner[2] > 0.f && beamLamps.size() < 16) { beamLamps.push_back(count); beamSteps = std::max(beamSteps, light->GetVolumetricSteps()); }
+				if (L.cosInner[2] > 0.f) { beamNear.push_back(std::make_pair((p - view.cameraWorld.GetTranslation()).magnitude(), count)); beamSteps = std::max(beamSteps, light->GetVolumetricSteps()); }
 				count++;
 			}
+		// (the beams pass takes 16 lamps: the nearest to the eye - the first 16 the scene held left a field of cars in the
+		// rain, two headlamps each, with the far cars' beams drawn and the ones beside the camera not)
+		std::sort(beamNear.begin(), beamNear.end());
+		for (size_t k = 0; k < beamNear.size() && k < 16; k++) beamLamps.push_back(beamNear[k].second);
 		// (the directional lights after the sun: type 2, from everywhere along its direction - the sun is the frame's own)
 		if (scene)
 		{
@@ -2298,7 +2360,7 @@ namespace p3d {
 			gfx::Device::BindGroupEntry e[3]; e[0].binding = 1; e[0].texture = hdr; e[1].binding = 2; e[1].sampler = linearClamp; e[2].binding = 3; e[2].texture = prepassDepth;
 			lumGroup = device->CreateBindGroup(luminancePipeline, e, 3);
 		}
-		const f32 meter[4] = { meterBackground ? 1.f : 0.f, 0.f, 0.f, 0.f };
+		const f32 meter[4] = { meterBackground ? 1.f : 0.f, meterDepth, 0.f, 0.f };
 		pass(lum64, 64, 64, luminancePipeline, lumGroup, meter, 16, false, "Luminance");
 		pass(lum16, 16, 16, reducePipeline, group(reduceGroup[0], reducePipeline, lum64, pointClamp), nullptr, 0, false, "Reduce");
 		pass(lum4, 4, 4, reducePipeline, group(reduceGroup[1], reducePipeline, lum16, pointClamp), nullptr, 0, false, "Reduce");
@@ -2311,8 +2373,7 @@ namespace p3d {
 			e[1].binding = 1; e[1].texture = lum1; e[2].binding = 2; e[2].texture = exposureTex[prev]; e[3].binding = 3; e[3].sampler = pointClamp;
 			adaptGroup[cur] = device->CreateBindGroup(adaptPipeline, e, 4);
 		}
-		const f32 ap[4] = { exposureEV, autoExposure ? 1.f : 0.f, std::pow(2.f, exposureEV), exposureRestart ? 1.f : 0.f };
-		exposureRestart = false;
+		const f32 ap[4] = { rec.exposureEV, rec.autoExposure ? 1.f : 0.f, std::pow(2.f, rec.exposureEV), rec.exposureRestart ? 1.f : 0.f };
 		pass(exposureTex[cur], 1, 1, adaptPipeline, adaptGroup[cur], ap, 16, false, "Adapt", &frameOffset, 1);
 	}
 
@@ -2320,7 +2381,7 @@ namespace p3d {
 	{
 		PYROS_PROFILE_SCOPE("R.PrepareSunShadow");
 		ShadowData sd = {};
-		sunShadowOn = false;
+		sunShadowOn = false; focusOn = false;
 		lastSunShadowFar = 0.f;     // (none, unless the sun below casts: Gather's next frame keeps off-screen casters this far)
 		// The clouds' shadow map: where it lies and how dark (none until it is made)
 		sd.cloudGrid[0] = cloudGrid[0]; sd.cloudGrid[1] = cloudGrid[1]; sd.cloudGrid[2] = 1.f / cloudGrid[2]; sd.cloudGrid[3] = cloudShadowOn ? cloudShadow : 0.f;
@@ -2434,6 +2495,31 @@ namespace p3d {
 				prev = split;
 			}
 			sd.params[0] = sun->GetShadowSoftness(); sd.params[1] = 1.f; sd.params[2] = shadowDistance; sd.params[3] = 1.5f;     // (x: the sun's filter radius, texels)
+			// The focus shadow: the same light's view, over the focus's sphere alone - its 2048 texels over a few metres
+			focusOn = false;
+			if (sun->GetShadowFocusRadius() > 0.f)
+			{
+				const f32 radius = sun->GetShadowFocusRadius();
+				const Vec3 centre = sun->GetShadowFocusCentre();
+				const f32 texel = 2.f * radius / kFocusSize;
+				f32 cx = centre.dotProduct(lx), cy = centre.dotProduct(ly);
+				cx = std::floor(cx / texel) * texel; cy = std::floor(cy / texel) * texel;
+				const f32 nearD = casterMin - 1.f, farD = std::max(casterMax, centre.dotProduct(l) + radius) + 1.f;
+				Matrix v;
+				v.m[0] = lx.x; v.m[4] = lx.y; v.m[8] = lx.z;  v.m[12] = -cx;
+				v.m[1] = ly.x; v.m[5] = ly.y; v.m[9] = ly.z;  v.m[13] = -cy;
+				v.m[2] = l.x;  v.m[6] = l.y;  v.m[10] = l.z;  v.m[14] = 0.f;
+				v.m[3] = 0.f;  v.m[7] = 0.f;  v.m[11] = 0.f;  v.m[15] = 1.f;
+				Matrix p;
+				for (int k = 0; k < 16; k++) p.m[k] = 0.f;
+				p.m[0] = 1.f / radius; p.m[5] = 1.f / radius;
+				p.m[10] = -1.f / (farD - nearD); p.m[14] = farD / (farD - nearD);
+				p.m[15] = 1.f;
+				focusMatrix = p * v; focusRadius = radius; focusOn = true;
+				memcpy(sd.focus, focusMatrix.m, sizeof(sd.focus));
+				sd.focusParams[0] = 1.f; sd.focusParams[1] = texel;
+				device->Upload(cascadeData, (slot * kShadowSlots + kFocusSlot) * 256, focusMatrix.m, sizeof(focusMatrix.m));
+			}
 			sunShadowOn = true;
 			// Each cascade's matrix for the shadow pass, in the frame's slots
 			for (uint32 c = 0; c < kCascades; c++) device->Upload(cascadeData, (slot * kShadowSlots + c) * 256, cascadeMatrix[c].m, sizeof(cascadeMatrix[c].m));
@@ -2464,11 +2550,20 @@ namespace p3d {
 			const gfx::Pipeline pipes[8] = { shadowPipeline, shadowInstPipeline, shadowAlphaPipeline, shadowInstAlphaPipeline, shadowSkinPipeline, gfx::Pipeline(), shadowSkinAlphaPipeline, gfx::Pipeline() };
 			// (the sun's cascades, then each local tile: one pass, a viewport each)
 			const uint32 firstPass = sunShadowOn ? 0 : kCascades;
-			for (uint32 c = firstPass; c < kCascades + (uint32)localTiles.size(); c++)
+			// (and the focus shadow last: a pass of its own after the local tiles)
+			const uint32 focusPass = kCascades + (uint32)localTiles.size();
+			for (uint32 c = firstPass; c < focusPass + (focusOn && sunShadowOn ? 1u : 0u); c++)
 			{
-				const bool local = c >= kCascades;
+				const bool focus = c == focusPass;
+				const bool local = c >= kCascades && !focus;
 				const uint32 t = c - kCascades;
-				if (!local)
+				if (focus)
+				{
+					const uint32 x = kShadowAtlasW / 2, y = kShadowAtlasH - kFocusSize;
+					cl->SetViewport((f32)x, (f32)y, (f32)kFocusSize, (f32)kFocusSize);
+					cl->SetScissor((int32_t)x, (int32_t)y, kFocusSize, kFocusSize);
+				}
+				else if (!local)
 				{
 					cl->SetViewport((f32)((c & 1) * kCascadeSize), (f32)((c >> 1) * kCascadeSize), (f32)kCascadeSize, (f32)kCascadeSize);
 					cl->SetScissor((int32_t)((c & 1) * kCascadeSize), (int32_t)((c >> 1) * kCascadeSize), kCascadeSize, kCascadeSize);
@@ -2479,7 +2574,7 @@ namespace p3d {
 					cl->SetViewport((f32)x, (f32)y, (f32)kLocalTile, (f32)kLocalTile);
 					cl->SetScissor((int32_t)x, (int32_t)y, kLocalTile, kLocalTile);
 				}
-				const uint32 offset = (slot * kShadowSlots + c) * 256;
+				const uint32 offset = (slot * kShadowSlots + (focus ? kFocusSlot : c)) * 256;
 				int boundKind = -1; gfx::BindGroup boundGroup;
 				// (the casters this cascade or tile holds, in the casters' order)
 				std::vector<uint32> visible;
@@ -2489,7 +2584,14 @@ namespace p3d {
 					const DrawItem &it = items[ci];
 					const int kind = (it.instances ? 1 : 0) + (it.alphaCut ? 2 : 0) + (it.skinned ? 4 : 0);
 					if (!ready[kind]) continue;
-					if (local)
+					if (focus)
+					{
+						// (only what the focus's square can hold - what stands round it, and what stands between it and the sun)
+						const Vec4 lc = focusMatrix * Vec4(it.center, 1.f);
+						const f32 rn = it.radius / focusRadius;
+						if (lc.x + rn < -1.f || lc.x - rn > 1.f || lc.y + rn < -1.f || lc.y - rn > 1.f) continue;
+					}
+					else if (local)
 					{
 						// (only what this tile's frustum can hold: within the light's reach, inside its four sides)
 						const LocalTile &lt = localTiles[t];
@@ -2663,6 +2765,16 @@ namespace p3d {
 		batchCursor = 0; batchWanted = 0;
 	}
 
+	void SceneRenderer::SetAntiAliasing(const AntiAliasing mode)
+	{
+		static f32 taaCrossfade = -1.f;     // (the crossfade the game set, kept while TAA is off)
+		const bool taa = mode == AntiAliasing::TAA;
+		if (taa != taaOn) taaHistory = false;
+		if (!taa && RenderingComponent::GetLODCrossfade() > 0.f) { taaCrossfade = RenderingComponent::GetLODCrossfade(); RenderingComponent::SetLODCrossfade(0.f); }
+		else if (taa && taaCrossfade > 0.f && RenderingComponent::GetLODCrossfade() == 0.f) RenderingComponent::SetLODCrossfade(taaCrossfade);
+		taaOn = taa; fxaaOn = mode == AntiAliasing::FXAA;
+	}
+
 	bool SceneRenderer::BatchWrite(const std::vector<uint32> &order, const uint32 first, const uint32 count, uint64 &offset)
 	{
 		const uint64 bytes = (uint64)count * sizeof(Instance);
@@ -2690,15 +2802,15 @@ namespace p3d {
 			cl->SetVertexBuffer(1, it.cullVisible, 0);
 			if (it.skinned) cl->SetVertexBuffer(2, it.gpu->skin, 0);
 			if (it.vertexColor && it.colors) cl->SetVertexBuffer(3, it.colors, 0);     // (PrepareItems)
-			cl->SetIndexBuffer(it.gpu->indices, 0, true);
+			cl->SetIndexBuffer(it.sided ? it.gpu->sided : it.gpu->indices, 0, true);
 			cl->DrawIndexedIndirect(it.cullArgs, 0, 1);
 			return;
 		}
 		if (it.instances) cl->SetVertexBuffer(1, it.instances, 0);
 		if (it.skinned) cl->SetVertexBuffer(2, it.gpu->skin, 0);
 		if (it.vertexColor && it.colors) cl->SetVertexBuffer(3, it.colors, 0);     // (PrepareItems)
-		cl->SetIndexBuffer(it.gpu->indices, 0, true);
-		cl->DrawIndexed(it.gpu->indexCount, it.instances ? it.instanceCount : 1, 0, 0, 0);
+		cl->SetIndexBuffer(it.sided ? it.gpu->sided : it.gpu->indices, 0, true);
+		cl->DrawIndexed(it.sided ? it.gpu->sidedCount : it.gpu->indexCount, it.instances ? it.instanceCount : 1, 0, 0, 0);
 	}
 
 	gfx::Buffer SceneRenderer::ColorsFor(IGeometry* g, MeshGpu* mesh)
@@ -2918,7 +3030,9 @@ namespace p3d {
 		p.material = { { 0, gfx::BindingKind::Uniform, false, true, false, true }, { 1, gfx::BindingKind::Texture3D, false, true }, { 2, gfx::BindingKind::Sampler, false, true },
 			{ 5, gfx::BindingKind::Uniform, false, true, false, true } };
 		cloudShadowPipeline = device->CreatePipeline(p);
-		gfx::TextureDesc st; st.width = st.height = 256; st.format = gfx::Format::R16F; st.usage = gfx::TexColorTarget | gfx::TexSampled; st.debugName = "Renderer.CloudShadow";
+		// (1024 texels over the 16 km round the camera: 16 m each. At 256, 62 m texels magnified on the road were hard-edged
+		// blocks a grid wide - "wtf is this shadow")
+		gfx::TextureDesc st; st.width = st.height = kCloudShadowSize; st.format = gfx::Format::R16F; st.usage = gfx::TexColorTarget | gfx::TexSampled; st.debugName = "Renderer.CloudShadow";
 		cloudShadowTex = MakeTexture(st);
 		// (the temporal anti-aliasing's resolve, with these: a full screen, into the HDR format)
 		{
@@ -3031,9 +3145,8 @@ namespace p3d {
 		}
 	}
 
-	void SceneRenderer::RecordClouds(gfx::CommandList* cl, const uint32 frameOffset, const uint32 slot)
+	void SceneRenderer::RecordClouds(gfx::CommandList* cl, const uint32 frameOffset, const uint32 slot, const uint32 cur)
 	{
-		const uint32 cur = cloudFrame & 1;
 		if (!device->PipelineReady(cloudsPipeline) || !cloudTex[cur]) return;
 		gfx::BindGroup &group = cloudsGroup[cur];
 		if (!group)
@@ -3059,7 +3172,6 @@ namespace p3d {
 		cl->SetBindGroup(group, offsets, 2);
 		cl->Draw(3, 1, 0, 0);
 		cl->EndPass();
-		cloudHistory = true;
 		graph.Use(cl, { { cloudTex[cur], gfx::Access::ShaderRead } });
 	}
 
@@ -3078,9 +3190,9 @@ namespace p3d {
 		graph.Use(cl, { { cloudShadowTex, gfx::Access::ColorTarget } });
 		gfx::PassDesc pass;
 		pass.colorCount = 1; pass.colors[0].texture = cloudShadowTex; pass.colors[0].load = gfx::Load::DontCare;
-		pass.width = pass.height = 256; pass.debugName = "CloudShadow";
+		pass.width = pass.height = kCloudShadowSize; pass.debugName = "CloudShadow";
 		cl->BeginPass(pass);
-		cl->SetViewport(0.f, 0.f, 256.f, 256.f);
+		cl->SetViewport(0.f, 0.f, (f32)kCloudShadowSize, (f32)kCloudShadowSize);
 		cl->SetPipeline(cloudShadowPipeline);
 		const uint32 offsets[2] = { frameOffset, slot * 256 };
 		cl->SetBindGroup(cloudShadowGroup, offsets, 2);
@@ -3172,7 +3284,7 @@ namespace p3d {
 			// a 0.44, and a crown of two-sided leaf cards seen edge on was white with the sky's reflection)
 			dd.surface[0] = std::max(dd.surface[0], gm->GetRoughness());
 		}
-		dd.surface[2] = 0.5f;
+		dd.surface[2] = 0.5f * gm->GetSpecularFactor();     // (surface.frag: f0 = 0.08 x this - the usual 4 %, scaled)
 		dd.surface[3] = gm->GetNormalMap() ? 1.f : 0.f;
 		// (its own light, as its flags say - surface.frag: lit by none without Diffuse, PBR or cel shading; by distance
 		// alone with Lighting2D) and an additive one's colour by its cover
@@ -3295,9 +3407,8 @@ namespace p3d {
 		graph.Use(cl, { { hdr, gfx::Access::ShaderRead } });
 	}
 
-	void SceneRenderer::RecordTemporalAA(gfx::CommandList* cl, const uint32 frameOffset, const uint32 slot)
+	void SceneRenderer::RecordTemporalAA(gfx::CommandList* cl, const uint32 frameOffset, const uint32 slot, const uint32 cur)
 	{
-		const uint32 cur = taaFrame & 1;
 		if (!device->PipelineReady(taaPipeline) || !taaTex[cur]) return;
 		gfx::BindGroup &g = taaGroups[cur];
 		if (!g)
@@ -3331,8 +3442,6 @@ namespace p3d {
 		graph.Use(cl, { { taaTex[cur], gfx::Access::CopySrc }, { picture, gfx::Access::CopyDst } });
 		cl->CopyTexture(taaTex[cur], picture);
 		graph.Use(cl, { { taaTex[cur], gfx::Access::ShaderRead }, { picture, gfx::Access::ShaderRead } });
-		taaHistory = true;
-		taaFrame++;
 	}
 
 	void SceneRenderer::RecordPost(gfx::CommandList* cl, const View &view, const uint32 frameOffset)
@@ -3350,18 +3459,20 @@ namespace p3d {
 		}
 		// (where the sun is on the screen: through this frame's view)
 		f32 dd[16] = {};
-		if (shaftsStrength > 0.f && skyOn && lastSunDirection.w > 0.f)
+		if (rec.shaftsStrength > 0.f && skyOn && lastSunDirection.w > 0.f)
 		{
 			const Vec3 sunDir(lastSunDirection.x, lastSunDirection.y, lastSunDirection.z);
 			const Vec4 c = lastViewProjection * Vec4(view.cameraWorld.GetTranslation() + sunDir * 10000.f, 1.f);
 			if (c.w > 0.f)
 			{
-				dd[0] = shaftsStrength; dd[1] = 0.965f; dd[2] = 0.85f;
+				dd[0] = rec.shaftsStrength; dd[1] = 0.965f; dd[2] = 0.85f;
 				dd[4] = c.x / c.w * 0.5f + 0.5f; dd[5] = 0.5f - c.y / c.w * 0.5f; dd[6] = 1.f; dd[7] = sunDir.y;
 			}
 		}
-		dd[8] = dofFocus; dd[9] = dofRange; dd[10] = dofBlur;
-		dd[12] = motionShutter; dd[13] = 24.f;
+		dd[8] = rec.dofFocus; dd[9] = rec.dofRange; dd[10] = rec.dofBlur;
+		// (the shutter as a time - its share of a 60 Hz frame - not of whatever this frame lasted: as a share of each frame,
+		// the blur shrank to a quarter at 240 fps and changed length with every uneven frame - the picture pulsed)
+		dd[12] = rec.motionShutter * (1.f / 60.f) / std::max(postFrameSeconds, 1.f / 500.f); dd[13] = 24.f;
 		graph.Use(cl, { { postTex, gfx::Access::ColorTarget } });
 		gfx::PassDesc pass;
 		pass.colorCount = 1; pass.colors[0].texture = postTex; pass.colors[0].load = gfx::Load::DontCare;
@@ -3386,8 +3497,10 @@ namespace p3d {
 		particleRing = device->CreateBuffer(b);
 		gfx::GraphicsPipelineDesc p;
 		p.vertex = particleVS; p.fragment = particleFS;
+		// (5: the frame's lights - a lit particle takes the point and spot lights too: a car's spray at night lit by the
+		// headlights crossing it, not by the moon alone - dark blue sheets in the beams' pool)
 		p.material = { { 0, gfx::BindingKind::Uniform, true, true, false, true }, { 1, gfx::BindingKind::Texture2D, false, true }, { 2, gfx::BindingKind::Sampler, false, true },
-			{ 3, gfx::BindingKind::DepthTexture, false, true }, { 4, gfx::BindingKind::Texture2D, false, true } };
+			{ 3, gfx::BindingKind::DepthTexture, false, true }, { 4, gfx::BindingKind::Texture2D, false, true }, { 5, gfx::BindingKind::StorageRead, false, true, false, true } };
 		p.drawDataBytes = 80;
 		p.bindings = { { 0, 32, true } };
 		p.attributes = { { 0, 0, gfx::Format::RGBA32F, 0 }, { 1, 0, gfx::Format::RGBA32F, 16 } };
@@ -3981,7 +4094,7 @@ namespace p3d {
 			// (an impostor's quad is a unit square: its sphere is the baked thing's - its radius about its centre's height)
 			if (it.impostor && it.material) { const Vec4 &imp = it.impostorData; dd[40] = 0.f; dd[41] = imp.z; dd[42] = 0.f; dd[43] = imp.y; }
 			dd[44] = cullEye.x; dd[45] = cullEye.y; dd[46] = cullEye.z; dd[47] = it.cullFade;
-			dd[48] = (f32)it.instanceCount; dd[49] = 1.f; dd[50] = (f32)it.gpu->indexCount;
+			dd[48] = (f32)it.instanceCount; dd[49] = 1.f; dd[50] = (f32)(it.sided ? it.gpu->sidedCount : it.gpu->indexCount);
 			dd[52] = it.instanceLod.x; dd[53] = it.instanceLod.y; dd[54] = it.instanceLod.z; dd[55] = it.instanceLod.w;     // (its level's distances)
 			// (its arguments reset - the index count, nothing counted - then every instance tested)
 			cl->DrawData(dd, sizeof(dd));
@@ -4214,13 +4327,14 @@ namespace p3d {
 				gfx::BindGroup &g = particleGroups[tex.id];
 				if (!g && device->PipelineReady(particleAlphaPipeline))
 				{
-					gfx::Device::BindGroupEntry en[5];
+					gfx::Device::BindGroupEntry en[6];
 					en[0].binding = 0; en[0].buffer = frameData; en[0].size = sizeof(FrameData);
 					en[1].binding = 1; en[1].texture = tex;
 					en[2].binding = 2; en[2].sampler = linearClamp;
 					en[3].binding = 3; en[3].texture = prepassDepth;
 					en[4].binding = 4; en[4].texture = skySH;
-					g = device->CreateBindGroup(particleAlphaPipeline, en, 5);
+					en[5].binding = 5; en[5].buffer = lightData; en[5].size = kLightDataSlot;
+					g = device->CreateBindGroup(particleAlphaPipeline, en, 6);
 				}
 				if (!g) continue;
 				pd.group = g;
@@ -4229,7 +4343,7 @@ namespace p3d {
 				const f32 dd[20] = { c0.x, c0.y, c0.z, c0.w, c1.x, c1.y, c1.z, c1.w,
 					d.startSize, d.endSize, d.sizeRandomJitter, (f32)d.sizeEase,
 					(f32)d.colorEase, d.fadeInFraction, d.fadeOutFraction, d.softness,
-					ps->IsLit() ? 1.f : 0.f, ps->GetForwardScatter(), pd.additive ? 1.f : 0.f, d.stretch };
+					ps->IsLit() ? 1.f + ps->GetLocalLightGain() : 0.f, ps->GetForwardScatter(), pd.additive ? 1.f : 0.f, d.stretch };     // (light.x: lit, 1 + its share of the lamps)
 				memcpy(pd.dd, dd, sizeof(dd));
 				particleDraws.push_back(pd);
 			}
@@ -4261,7 +4375,8 @@ namespace p3d {
 			if (pd.half != half) continue;
 			const gfx::Pipeline pipe = pd.additive ? addPipe : alphaPipe;
 			if (!(pipe == bound)) { cl->SetPipeline(pipe); bound = pipe; }
-			cl->SetBindGroup(pd.group, &frameOffset, 1);
+			const uint32 offsets[2] = { frameOffset, particleLightOffset };
+			cl->SetBindGroup(pd.group, offsets, 2);
 			cl->DrawData(pd.dd, sizeof(pd.dd));
 			cl->SetVertexBuffer(0, pd.stream, pd.ringAt);
 			cl->Draw(6, pd.n, 0, 0);
@@ -4722,7 +4837,8 @@ namespace p3d {
 					if (want != ls.level) { ls.from = ls.level; ls.level = want; ls.start = lodClock; }
 				}
 				ls.seen = frameNumber + 1;
-				pk.t = ls.start < 0.0 || !lodCrossfade ? 1.f : (f32)std::min(1.0, (lodClock - ls.start) / 0.25);
+				// (and only under TAA: its dither is what the temporal resolve smooths - SetAntiAliasing)
+				pk.t = ls.start < 0.0 || !lodCrossfade || !taaOn ? 1.f : (f32)std::min(1.0, (lodClock - ls.start) / 0.25);
 				pk.level = std::min<uint32>(ls.level, (uint32)rc->GetLODSize() - 1);
 				pk.from = ls.from;
 				pk.crossfade = pk.t < 1.f && ls.from != ls.level && ls.from < rc->GetLODSize();
@@ -4848,8 +4964,15 @@ namespace p3d {
 					// (an instanced set with nothing to draw now - a block of plants emptied, or not yet filled: dropped here,
 					// most of the list the work below walked, one cache miss each)
 					if (rc->GetComponentType() == ComponentType::RenderingInstancedComponent) { if (static_cast<RenderingInstancedComponent*>(rc)->InstancesToDraw() == 0) flag = 2; continue; }
-					if (!(rm->drawRecordOwner == this && rm->drawRecordGeneration == meshDrawGeneration)) continue;
-					MeshDraw &md = *static_cast<MeshDraw*>(rm->drawRecord);
+					// (its record: the mesh's pointer to it where this renderer holds that; a second view's - a mirror's -
+					// from its own table, the pointer being the main view's. Both took the pointer in turn, each found
+					// none of its own there and made every mesh's draw again: 17-70 ms a mirror, then as much for the
+					// main view the frame after - "I can feel some stutters")
+					const MeshDraw* rec = NULL;
+					if (rm->drawRecordOwner == this && rm->drawRecordGeneration == meshDrawGeneration) rec = static_cast<const MeshDraw*>(rm->drawRecord);
+					else if (secondaryView) { std::unordered_map<RenderingMesh*, MeshDraw>::iterator f = meshDraws.find(rm); if (f != meshDraws.end()) rec = &f->second; }
+					if (!rec) continue;
+					MeshDraw &md = *const_cast<MeshDraw*>(rec);
 					const Matrix &ownerWorld = rc->GetOwner()->GetDrawWorld();
 					if (md.placeKnown && memcmp(ownerWorld.m, md.ownerWorld.m, sizeof(ownerWorld.m)) == 0 && memcmp(rm->Pivot.m, md.pivot.m, sizeof(rm->Pivot.m)) == 0
 						&& !md.movesItself && !md.skybox && md.gpu && md.material == rm->Material.get() && md.geometry == rm->Geometry
@@ -4896,6 +5019,7 @@ namespace p3d {
 			// What it is drawn with - kept while nothing it depends on has changed
 			MeshDraw* mdp;
 			if (rm->drawRecordOwner == this && rm->drawRecordGeneration == meshDrawGeneration) mdp = static_cast<MeshDraw*>(rm->drawRecord);
+			else if (secondaryView) mdp = &meshDraws[rm];     // (its own, the main view's pointer left alone)
 			else { mdp = &meshDraws[rm]; rm->drawRecordOwner = this; rm->drawRecord = mdp; rm->drawRecordGeneration = meshDrawGeneration; }
 			MeshDraw &md = *mdp;
 			IMaterial* material = rm->Material.get();
@@ -4911,6 +5035,7 @@ namespace p3d {
 				|| md.materialId != material->GetInternalID() || md.geometryId != rm->Geometry->GetInstanceID();
 			if (!stale && md.cm) stale = md.surfaceRevision != md.cm->GetSurfaceRevision();
 			if (!stale) stale = md.transparent != Blended(material) || md.cull != (uint32)material->GetCullFace();
+			if (!stale && md.gpu) stale = md.sided != (md.cull == CullFace::DoubleSided && md.gpu->sidedCount > 0 && md.gpu->sidedRevision == md.gpu->revision);     // (its mesh made again, with or without faces back to back)
 			if (!stale && md.gm)
 			{
 				Texture* const maps[5] = { md.gm->GetColorMap(), md.gm->GetNormalMap(), md.gm->GetMetallicRoughnessMap(), md.gm->GetEmissionMap(), md.gm->GetDisplacementMap() };
@@ -4934,6 +5059,7 @@ namespace p3d {
 				md.content = ContentRevision(rm->Geometry);
 				md.geometryRevision = rm->Geometry->buffersRevision;
 				md.transparent = Blended(material); md.cull = (uint32)material->GetCullFace();
+				md.sided = md.cull == CullFace::DoubleSided && md.gpu && SidedFor(rm->Geometry, md.gpu);
 				if (md.cm)
 				{
 					md.surfaceRevision = md.cm->GetSurfaceRevision();
@@ -4960,12 +5086,13 @@ namespace p3d {
 			}
 			if (md.skybox) { skyboxSource = md.skybox; continue; }     // (the scene's background, by direction: not its mesh)
 			// (its bytes changed in place - a sprite's next frame: its GPU copy made again)
-			if (md.gpu) { const uint64 c = ContentRevision(rm->Geometry); if (c != md.content) { md.gpu = MeshFor(rm->Geometry); md.content = c; md.placeKnown = false; } md.contentSeenAt = contentScan; }
+			if (md.gpu) { const uint64 c = ContentRevision(rm->Geometry); if (c != md.content) { md.gpu = MeshFor(rm->Geometry); md.content = c; md.placeKnown = false; if (md.gpu && md.cull == CullFace::DoubleSided) SidedFor(rm->Geometry, md.gpu); } md.contentSeenAt = contentScan; }
 			if (!md.gpu || (md.cm && !md.surface)) continue;
 			DrawItem it;
 			it.mesh = rm; it.material = md.gm; it.custom = md.cm; it.movesItself = md.movesItself;
 			it.vertexColor = md.vertexColor && md.gm; it.sortOrder = rc->GetSortOrder(); it.lensCut = rc->screenLensCut;
 			it.gpu = md.gpu;
+			it.sided = md.sided && md.gpu->sided && md.gpu->sidedCount > 0;
 			const bool placeKept = placeSame && md.placeKnown;     // (and its geometry's bounds not changed since)
 			it.model = placeKept ? md.model : ownerWorld * rm->Pivot;
 			// (its matrix last frame, where it was drawn then: its move on screen)
@@ -5019,7 +5146,9 @@ namespace p3d {
 				md.placeKnown = true; md.ownerWorld = ownerWorld; md.pivot = rm->Pivot; md.model = it.model; md.center = it.center; md.radius = it.radius;
 			}
 			it.distance = (it.center - eye).magnitude();
-			it.caster = rc->IsCastingShadows();
+			// Component and material both: paint/decals on a casting tile used to
+			// cast from a few mm of lift and draw black contact rims under every line.
+			it.caster = rc->IsCastingShadows() && material->IsCastingShadows();
 			if (!md.movesItself && !needed(it.center, it.radius, it.caster && !md.impostor)) continue;
 			// (smaller on screen than a pixel or two - a box of rounds on a floor across the town, a door's knob 80 m off: a
 			// quarter of a town's items, each a draw in every pass, for nothing that can be seen; its shadow as small)
@@ -5035,7 +5164,7 @@ namespace p3d {
 				const Vec4 w = md.gm->GetWind(); it.wind[0] = w.x; it.wind[1] = w.y; it.wind[2] = w.z; it.wind[3] = w.w;
 				it.impostorData = md.gm->GetImpostor();
 			}
-			else if (md.cm) it.customCull = (uint8)md.cm->GetCullFace();
+			else if (md.cm) it.customCull = (uint8)(md.sided ? (uint32)CullFace::BackFace : (uint32)md.cm->GetCullFace());
 			{
 				const Vec3 place = owner->GetDrawWorldPosition();
 				it.sortDepth = view.orthographic ? (place - eye).dotProduct(sortForward) : (place - eye).dotProduct(place - eye);
@@ -5126,7 +5255,7 @@ namespace p3d {
 			{
 				if (md.cm)
 				{
-					CustomKey key; key.surface = md.surfaceHash; key.cull = (uint8)md.cull;
+					CustomKey key; key.surface = md.surfaceHash; key.cull = (uint8)(md.sided ? (uint32)CullFace::BackFace : md.cull);
 					key.blend = (uint8)(md.transparent ? gfx::Blend::Alpha : gfx::Blend::Opaque); key.instanced = instancedComponent ? 1 : 0;
 					key.skinned = it.skinned ? 1 : 0;
 					md.pipeline = CustomPipeline(key, md.surface);
@@ -5136,7 +5265,7 @@ namespace p3d {
 				else
 				{
 					PipelineKey key;
-					key.cull = (uint8)md.cull;
+					key.cull = (uint8)(md.sided ? (uint32)CullFace::BackFace : md.cull);     // (faces back to back: each seen from its own side - SidedFor)
 					key.blend = md.transparent ? md.blend : (uint8)gfx::Blend::Opaque;
 					key.instanced = instancedComponent ? 1 : 0;
 					key.skinned = it.skinned ? 1 : 0;
@@ -5589,13 +5718,215 @@ namespace p3d {
 		writtenRead = now;
 	}
 
+	// A two-sided mesh whose faces come back to back - a tree's card made as two triangles on the same three corners, one
+	// wound each way, each with its own picture, in a material that is two-sided all the same: drawn two-sided, the two lie
+	// in one plane, and which of them a pixel shows is left to the last bit of two depths rounded apart - one way on one
+	// GPU, pixel by pixel and frame by frame on another (NVIDIA's, on Vulkan: trees that flickered between a picture and
+	// its mirror image, and lit a card's cut-away texels where the other picture had a leaf). Such a mesh is drawn
+	// one-sided instead, each face seen from its own side, as it was made to be: from an index set of its own - every
+	// triangle, and each that has no other at its back a second time, turned round, so that it is still seen from both
+	// sides. True when the mesh has such faces (PYROS_RENDERER_SIDED=0: never - to compare; =log: said for each mesh).
+	// A face at a triangle's back is found two ways: one on its own three corners, wound the other way; or one that
+	// shares an edge with it, faces the other way in its plane and lies on its side of that edge - a card's two faces
+	// are two quads, and the two are not always cut into triangles along the same diagonal (Spa's conifers: four tree
+	// triangles in five had a back that the first test alone did not see, were taken for faces on their own and given a
+	// second back - four layers in one plane, and the crowns that crawled in blocks as the camera moved).
+	// The index set itself (out), from the mesh's own data alone - the same for every renderer: worked out once a mesh and
+	// kept (SidedIndices), each renderer - the main view's, each mirror's - only uploading it. Worked out by each, the first
+	// time each saw a mesh: 20-80 ms frames on the first lap, a mirror meeting a stretch of trees it had not seen.
+	bool SceneRenderer::BuildSided(IGeometry* g, std::vector<uint32> &out)
+	{
+		out.clear();
+		static const char* mode = getenv("PYROS_RENDERER_SIDED");
+		AttributeSource pos = SourceOf(g, "aPosition"), nor = SourceOf(g, "aNormal"), uv = SourceOf(g, "aTexcoord");
+		PrimitiveArrays(g, pos, nor, uv);
+		const uint32* index = nullptr; size_t count = 0;
+		IndicesOf(g, index, count);
+		if (!pos.base || !index || count < 6) return false;
+		PYROS_PROFILE_SCOPE("R.SidedFor");
+		// (each vertex's place, as a number: two vertices at one point - a card's two faces have their own, for their own
+		// texture coordinates - are one corner)
+		struct Place { uint32 x, y, z; bool operator==(const Place &o) const { return x == o.x && y == o.y && z == o.z; } };
+		struct PlaceHash { size_t operator()(const Place &p) const { uint64 h = p.x * 0x9E3779B97F4A7C15ull; h ^= (h >> 29) + p.y * 0xBF58476D1CE4E5B9ull; h ^= (h >> 31) + p.z * 0x94D049BB133111EBull; return (size_t)(h ^ (h >> 32)); } };
+		std::vector<uint32> corner(pos.count);
+		{
+			std::unordered_map<Place, uint32, PlaceHash> places; places.reserve(pos.count);
+			for (uint32 i = 0; i < pos.count; i++)
+			{
+				f32 p[3]; memcpy(p, pos.base + (size_t)i * pos.stride, sizeof(p));
+				for (int k = 0; k < 3; k++) p[k] += 0.f;      // (-0 is 0)
+				Place pl; memcpy(&pl, p, sizeof(pl));
+				corner[i] = places.insert(std::make_pair(pl, (uint32)places.size())).first->second;
+			}
+		}
+		// (each triangle's three corners in order, and which way round it goes through them: 1 or 2)
+		const size_t triangles = count / 3;
+		std::vector<uint8> way(triangles, 0);
+		std::unordered_map<Place, uint8, PlaceHash> faces; faces.reserve(triangles);
+		std::vector<Place> key(triangles);
+		for (size_t t = 0; t < triangles; t++)
+		{
+			if (index[t * 3] >= pos.count || index[t * 3 + 1] >= pos.count || index[t * 3 + 2] >= pos.count) return false;
+			uint32 a = corner[index[t * 3]], b = corner[index[t * 3 + 1]], c = corner[index[t * 3 + 2]];
+			if (a == b || b == c || a == c) continue;      // (no face)
+			bool even = true;
+			if (a > b) { std::swap(a, b); even = !even; }
+			if (b > c) { std::swap(b, c); even = !even; }
+			if (a > b) { std::swap(a, b); even = !even; }
+			key[t].x = a; key[t].y = b; key[t].z = c; way[t] = even ? 1 : 2;
+			faces[key[t]] |= way[t];
+		}
+		// (which have a face at their back: 1 on their own corners, 2 across an edge)
+		std::vector<uint8> backed(triangles, 0);
+		size_t twins = 0;
+		for (size_t t = 0; t < triangles; t++) if (way[t] && faces[key[t]] == 3) { backed[t] = 1; twins++; }
+		if (twins < triangles)
+		{
+			// (every edge of the others, by its two corners: the triangles on one edge lie together once sorted)
+			struct Edge { uint64 key; uint32 triangle; uint32 opposite; };     // (opposite: the vertex not on the edge)
+			std::vector<Edge> edges; edges.reserve((triangles - twins) * 3);
+			for (size_t t = 0; t < triangles; t++)
+			{
+				if (!way[t] || backed[t]) continue;
+				for (int e = 0; e < 3; e++)
+				{
+					const uint32 a = corner[index[t * 3 + e]], b = corner[index[t * 3 + (e + 1) % 3]];
+					Edge ed; ed.key = ((uint64)(a < b ? a : b) << 32) | (uint64)(a < b ? b : a); ed.triangle = (uint32)t; ed.opposite = index[t * 3 + (e + 2) % 3];
+					edges.push_back(ed);
+				}
+			}
+			std::sort(edges.begin(), edges.end(), [](const Edge &x, const Edge &y) { return x.key < y.key; });
+			const auto point = [&](uint32 v, f64* o) { f32 p[3]; memcpy(p, pos.base + (size_t)v * pos.stride, sizeof(p)); o[0] = p[0]; o[1] = p[1]; o[2] = p[2]; };
+			const auto normal = [&](uint32 t, f64* n)
+			{
+				f64 a[3], b[3], c[3]; point(index[t * 3], a); point(index[t * 3 + 1], b); point(index[t * 3 + 2], c);
+				const f64 u[3] = { b[0] - a[0], b[1] - a[1], b[2] - a[2] }, v[3] = { c[0] - a[0], c[1] - a[1], c[2] - a[2] };
+				n[0] = u[1] * v[2] - u[2] * v[1]; n[1] = u[2] * v[0] - u[0] * v[2]; n[2] = u[0] * v[1] - u[1] * v[0];
+				const f64 l = sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+				if (l > 0.0) { n[0] /= l; n[1] /= l; n[2] /= l; }
+				return l > 0.0;
+			};
+			for (size_t i = 0; i < edges.size(); )
+			{
+				size_t j = i + 1;
+				while (j < edges.size() && edges[j].key == edges[i].key) j++;
+				// (an edge with very many triangles on it is no card's: left as it is)
+				if (j - i >= 2 && j - i <= 32)
+					for (size_t x = i; x < j; x++)
+						for (size_t y = x + 1; y < j; y++)
+						{
+							const Edge &p = edges[x], &q = edges[y];
+							if (p.triangle == q.triangle || (backed[p.triangle] && backed[q.triangle])) continue;
+							f64 n1[3], n2[3];
+							if (!normal(p.triangle, n1) || !normal(q.triangle, n2)) continue;
+							if (n1[0] * n2[0] + n1[1] * n2[1] + n1[2] * n2[2] > -0.9999) continue;     // (not back to back: within 0.8 degrees of it)
+							// (the edge's two ends, as the first triangle has them, and the two corners off it: on one side of it?)
+							uint32 ea = 0, eb = 0;
+							for (int e = 0; e < 3; e++) if (index[p.triangle * 3 + (e + 2) % 3] == p.opposite) { ea = index[p.triangle * 3 + e]; eb = index[p.triangle * 3 + (e + 1) % 3]; }
+							f64 a[3], b[3], c[3], d[3]; point(ea, a); point(eb, b); point(p.opposite, c); point(q.opposite, d);
+							const f64 ab[3] = { b[0] - a[0], b[1] - a[1], b[2] - a[2] };
+							const f64 side[3] = { ab[1] * n1[2] - ab[2] * n1[1], ab[2] * n1[0] - ab[0] * n1[2], ab[0] * n1[1] - ab[1] * n1[0] };
+							const f64 sc = (c[0] - a[0]) * side[0] + (c[1] - a[1]) * side[1] + (c[2] - a[2]) * side[2];
+							const f64 sd = (d[0] - a[0]) * side[0] + (d[1] - a[1]) * side[1] + (d[2] - a[2]) * side[2];
+							if (sc * sd > 0.0) { if (!backed[p.triangle]) backed[p.triangle] = 2; if (!backed[q.triangle]) backed[q.triangle] = 2; }
+						}
+				i = j;
+			}
+		}
+		size_t paired = 0, alone = 0, across = 0;
+		for (size_t t = 0; t < triangles; t++) if (way[t]) { if (backed[t]) { paired++; if (backed[t] == 2) across++; } else alone++; }
+		if (mode && mode[0] == 'l') fprintf(stderr, "[renderer] two-sided mesh: %zu triangles, %zu back to back (%zu of them across an edge), %zu alone\n", triangles, paired, across, alone);
+		if (!paired) return false;
+		out.reserve(count + alone * 3);
+		out.insert(out.end(), index, index + triangles * 3);
+		for (size_t t = 0; t < triangles; t++)
+			if (way[t] && !backed[t]) { out.push_back(index[t * 3]); out.push_back(index[t * 3 + 2]); out.push_back(index[t * 3 + 1]); }
+		return true;
+	}
+
+	// (kept by the geometry, its instance - another made where a freed one was is not it - and its content's revision;
+	// empty: not such a mesh. Every renderer's, so locked: a mirror's renderer and the main view's may ask on two threads)
+	namespace { struct SidedKey { IGeometry* g; uint32 id; uint64 revision; bool operator<(const SidedKey &o) const { return g != o.g ? g < o.g : id != o.id ? id < o.id : revision < o.revision; } }; }
+	static std::mutex g_sidedGuard;
+	static std::map<SidedKey, std::shared_ptr<const std::vector<uint32> > > g_sided;
+	std::shared_ptr<const std::vector<uint32> > SceneRenderer::SidedIndices(IGeometry* g, const uint64 revision)
+	{
+		const SidedKey key{ g, g->GetInstanceID(), revision };
+		{
+			std::lock_guard<std::mutex> lock(g_sidedGuard);
+			std::map<SidedKey, std::shared_ptr<const std::vector<uint32> > >::iterator f = g_sided.find(key);
+			if (f != g_sided.end()) return f->second;
+		}
+		std::shared_ptr<std::vector<uint32> > made = std::make_shared<std::vector<uint32> >();
+		{
+			PYROS_PROFILE_SCOPE("R.SidedFor");
+			if (!BuildSided(g, *made)) made->clear();
+		}
+		std::lock_guard<std::mutex> lock(g_sidedGuard);
+		// (an older revision of the same geometry, or a freed one's at its address: no longer asked for)
+		for (std::map<SidedKey, std::shared_ptr<const std::vector<uint32> > >::iterator i = g_sided.lower_bound(SidedKey{ g, 0, 0 }); i != g_sided.end() && i->first.g == g; )
+			i = (i->first.id != key.id || i->first.revision != revision) ? g_sided.erase(i) : std::next(i);
+		g_sided[key] = made;
+		return made;
+	}
+
+	bool SceneRenderer::SidedFor(IGeometry* g, MeshGpu* m)
+	{
+		if (m->sidedRevision == m->revision) return m->sidedCount > 0;
+		m->sidedRevision = m->revision; m->sidedCount = 0;
+		static const char* mode = getenv("PYROS_RENDERER_SIDED");
+		if (mode && mode[0] == '0') return false;
+		const std::shared_ptr<const std::vector<uint32> > out = SidedIndices(g, m->revision);
+		if (!out || out->empty()) return false;
+		if (m->sided) device->Destroy(m->sided);
+		gfx::BufferDesc ib; ib.size = (uint64)out->size() * sizeof(uint32); ib.usage = gfx::BufIndex; ib.debugName = "Renderer.Indices (sided)";
+		m->sided = device->CreateBuffer(ib, nullptr);
+		device->Upload(m->sided, 0, out->data(), ib.size);
+		m->sidedCount = (uint32)out->size();
+		return true;
+	}
+
+	// Every two-sided mesh of the scene, at every level, worked out ahead (SidedIndices) - under a game's loading curtain,
+	// a few ms a frame - so that no view meets one for the first time while it is played. The number still to do.
+	size_t SceneRenderer::PrepareMeshes(SceneGraph* scene, const f64 budgetMs)
+	{
+		if (!scene) return 0;
+		static const char* mode = getenv("PYROS_RENDERER_SIDED");
+		if (mode && mode[0] == '0') return 0;
+		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+		std::vector<std::pair<IGeometry*, uint64> > todo;
+		std::set<IGeometry*> seen;
+		for (RenderingComponent* rc : scene->GetRenderingComponents())
+		{
+			if (!rc) continue;
+			for (uint32 lod = 0; lod <= rc->GetHighestLOD(); lod++)
+				if (const std::vector<RenderingMesh*>* ms = rc->FindMeshes(lod))
+					for (RenderingMesh* rm : *ms)
+					{
+						if (!rm || !rm->Geometry || !rm->Material || rm->Material->GetCullFace() != CullFace::DoubleSided || !seen.insert(rm->Geometry).second) continue;
+						todo.push_back(std::make_pair(rm->Geometry, ContentRevision(rm->Geometry)));
+					}
+		}
+		size_t left = 0;
+		for (const std::pair<IGeometry*, uint64> &t : todo)
+		{
+			{
+				std::lock_guard<std::mutex> lock(g_sidedGuard);
+				if (g_sided.count(SidedKey{ t.first, t.first->GetInstanceID(), t.second })) continue;
+			}
+			if (std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count() >= budgetMs) { left++; continue; }
+			SidedIndices(t.first, t.second);
+		}
+		return left;
+	}
+
 	SceneRenderer::MeshGpu* SceneRenderer::MeshFor(IGeometry* g)
 	{
 		MeshGpu &m = meshes[g];
 		// (another geometry made where a freed one was: not its buffers - made again)
 		if (m.geometryId != g->GetInstanceID())
 		{
-			for (gfx::Buffer b : { m.vertices, m.indices, m.colors, m.skin }) if (b) device->Destroy(b);
+			for (gfx::Buffer b : { m.vertices, m.indices, m.colors, m.skin, m.sided }) if (b) device->Destroy(b);
 			m = MeshGpu();
 			m.geometryId = g->GetInstanceID();
 		}
@@ -5921,6 +6252,12 @@ namespace p3d {
 		// (the last frame's recording, on the render thread, done: everything below is the renderer's again)
 		{ PYROS_PROFILE_SCOPE("R.WaitRender"); WaitIdle(); }
 		PYROS_PROFILE_SCOPE("R.Render");
+		// (the settings the recording reads, as they are now: the game's thread may set them again while the render thread
+		// records this frame - a shot's focus or grade then landed a frame early, an exposure restart was lost)
+		rec.dofFocus = dofFocus; rec.dofRange = dofRange; rec.dofBlur = dofBlur; rec.motionShutter = motionShutter;
+		rec.shaftsStrength = shaftsStrength; rec.grade = grade;
+		rec.bloomIntensity = bloomIntensity; rec.bloomThreshold = bloomThreshold; rec.bloomKnee = bloomKnee;
+		rec.exposureEV = exposureEV; rec.autoExposure = autoExposure; rec.exposureRestart = exposureRestart; exposureRestart = false;
 		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 		FrameProfiler::Instance().Begin("R.BeginFrame");
 		if (!view.hostFrame) device->BeginFrame();
@@ -6049,8 +6386,9 @@ namespace p3d {
 				mirrorLevel = mirrorOn ? level : 0.f;
 				fd.temporal[1] = mirrorLevel; fd.temporal[2] = mirrorOn ? 1.f : 0.f;
 			}
-			td[48] = taaHistory ? 1.f : 0.f; td[49] = targetWidth < outputWidth ? 0.08f : 0.1f; td[50] = taaJitter[0]; td[51] = taaJitter[1];
+			td[48] = taaHistory ? 1.f : 0.f; td[49] = 1.f - std::pow(1.f - (targetWidth < outputWidth ? 0.08f : 0.1f), std::max(postFrameSeconds, 1.f / 500.f) * 60.f); td[50] = taaJitter[0]; td[51] = taaJitter[1];     // (td[49], this frame's share, as a time: 0.1 at 60 Hz - a fixed 0.1 a frame kept the history a quarter as long at 240 fps)
 			td[52] = td[53] = td[54] = td[55] = 0.f;     // (the particle layers': written once they are gathered, below)
+			td[54] = (1.f / 60.f) / std::max(postFrameSeconds, 1.f / 500.f);     // (z: frames of 60 Hz in this one - its moves read as speeds, taa.frag)
 			device->Upload(taaData, slot * 256, td, sizeof(td));
 			taaPreviousViewProjection = vp;
 		}
@@ -6087,6 +6425,7 @@ namespace p3d {
 		{
 			const f64 now = std::chrono::duration<f64>(std::chrono::steady_clock::now().time_since_epoch()).count();
 			fd.frame[0] = lastFrameTime > 0.0 ? (f32)std::min(now - lastFrameTime, 0.25) : 0.f;     // (seconds since the last frame)
+			postFrameSeconds = fd.frame[0] > 0.f ? fd.frame[0] : 1.f / 60.f;
 			lastFrameTime = now;
 		}
 		fd.frame[1] = toneCurve ? exposure : -exposure;     // (negative: no curve - tonemap.frag)
@@ -6116,6 +6455,43 @@ namespace p3d {
 				fd.skySunTop[2] = light.z * (f32)PI / std::max(noon.z, 1e-3f); fd.skySunTop[3] = 1.f;
 			}
 			else for (int i = 0; i < 4; i++) fd.skySunTop[i] = 0.f;
+			// The clouds' own light: the sun's as it falls on their tops - through the air, and never through the weather. A
+			// game with an overcast day dims the scene's light to what a deck lets down to the ground (and the clouds' shadow
+			// takes more); lit by that remnant, the clouds had next to none of the sun's white in them and were the clear
+			// sky's blue all through - a day of rain under a pale blue sky. Where the game gave the sky its sun and it is up:
+			// that light, through the air toward it; else the scene's light as it is (the moon's, at night).
+			for (int i = 0; i < 3; i++) fd.cloudLight[i] = fd.sunRadiance[i];
+			if (fd.skySunTop[3] > 0.f)
+			{
+				const Vec3 to = Vec3(fd.skySun[0], fd.skySun[1], fd.skySun[2]).normalize();
+				if (to.y > 0.02f)
+				{
+					const Vec3 air = PhysicalSunTransmittance(to.y, GetSunAirHaze());
+					fd.cloudLight[0] = fd.skySunTop[0] * air.x; fd.cloudLight[1] = fd.skySunTop[1] * air.y; fd.cloudLight[2] = fd.skySunTop[2] * air.z;
+				}
+			}
+			// (and how much of a deck they are: under one the clear sky is shut out - clouds.frag)
+			const f32 deck = std::min(std::max((cloudCover - 0.6f) / 0.35f, 0.f), 1.f);
+			fd.cloudLight[3] = deck * deck * (3.f - 2.f * deck);
+			// (the sky's state in the log, when it changes and every half minute: a sky seen wrong on a machine not at hand -
+			// a day of rain under a clear blue sky on one card only - is read off its PyrosLog.txt)
+			{
+				// (each renderer its own - the mirrors' and the dash's say theirs; only one that draws a sun with its light)
+				struct Said { f32 cover = -1.f, deck = -1.f; int ready = -1; f64 at = -1e9; };
+				static std::unordered_map<const void*, Said> said;
+				Said &sd0 = said[this];
+				const int ready = device->PipelineReady(cloudsPipeline) ? 1 : 0;
+				const f64 now = RendererSeconds();
+				if (fd.sunDirection[3] > 0.f && (std::fabs(sd0.cover - cloudCover) > 0.02f || std::fabs(sd0.deck - fd.cloudLight[3]) > 0.02f || sd0.ready != ready || now - sd0.at > 30.0))
+				{
+					sd0.cover = cloudCover; sd0.deck = fd.cloudLight[3]; sd0.ready = ready; sd0.at = now;
+					char t[256];
+					snprintf(t, sizeof(t), "INFO: Renderer - sky: cover %.2f, deck %.2f, clouds pipeline %s, steps %u, sun %.2f %.2f %.2f (w %.0f), rt %d",
+						cloudCover, fd.cloudLight[3], ready ? "ready" : "NOT ready", (unsigned)cloudSteps, fd.sunDirection[0], fd.sunDirection[1], fd.sunDirection[2], fd.sunDirection[3],
+						RtHardware() ? 1 : 0);
+					echo(t);
+				}
+			}
 		}
 		const bool skyLit = skyOn && fd.sunDirection[3] > 0.f;
 		fd.frame[2] = skyLit ? 1.f : 0.f;
@@ -6152,11 +6528,29 @@ namespace p3d {
 				device->PipelineReady(cloudsPipeline) ? std::pow(cloudCover, 1.6f) : 0.f, 0.03f, 1500.f, 3500.f, seconds * 9.f, seconds * 3.f, seconds * 0.004f, (f32)cloudSteps };
 			// (last frame's view, to find where these clouds were in its picture; each frame an eighth of the new)
 			memcpy(&sd[24], previousViewProjection.m, sizeof(previousViewProjection.m));
-			sd[40] = cloudHistory ? 1.f : 0.f; sd[41] = 0.125f; sd[42] = (f32)(cloudFrame % 1024); sd[43] = 0.f;
+			// (sd[43]: seconds since the last frame's clouds - their drift between, for finding them in its picture)
+			// (no blending into last frame's clouds: with the steps' offset fixed per pixel it smoothed no noise - it only dragged
+			// the clouds behind the camera as the car shook it, a smear that caught up a few frames later: "the sky shakes".
+			// Measured under a shaken camera: up to 18 levels off the true picture at their edges; each frame fresh, none.
+			// PYROS_CLOUD_HISTORY=1 brings it back)
+			static const bool noCloudHistory = getenv("PYROS_CLOUD_HISTORY") == nullptr;
+			sd[40] = (cloudHistory && !noCloudHistory) ? 1.f : 0.f; sd[41] = 0.125f; sd[42] = (f32)(cloudFrame % 1024);
+			sd[43] = (cloudLastSeconds > 0.f) ? std::min(std::max(seconds - cloudLastSeconds, 0.f), 0.25f) : 0.f; cloudLastSeconds = seconds;
+			// (the clouds' clock, once a second, into the log - PyrosLog.txt beside the program on Windows: the clouds stood still for
+			// seconds on Duarte's PC, then jumped, where they drift on the Mac. PYROS_CLOUD_LOG: every frame)
+			{
+				static const bool everyFrame = getenv("PYROS_CLOUD_LOG") != nullptr;
+				if (sd[16] > 0.f && everyFrame)     // (PYROS_CLOUD_LOG only: once a second, it was most of a player's log)
+				{
+					cloudLogAt = seconds;
+					fprintf(stdout, "[clouds] frame %llu seconds %.4f wind %.2f %.2f cover %.3f steps %.0f history %.0f drawn %d\n", (unsigned long long)frameNumber, seconds, sd[20], sd[21], sd[16], sd[23], sd[40], (int)cloudFrame);
+					fflush(stdout);
+				}
+			}
 			// (the clouds' shadow map round the camera, 16 km, its corner snapped to whole texels: it does not crawl)
 			{
 				const Vec3 e = view.cameraWorld.GetTranslation();
-				const f32 texel = cloudGrid[2] / 256.f;
+				const f32 texel = cloudGrid[2] / (f32)kCloudShadowSize;
 				cloudGrid[0] = std::floor((e.x - cloudGrid[2] * 0.5f) / texel) * texel; cloudGrid[1] = std::floor((e.z - cloudGrid[2] * 0.5f) / texel) * texel;
 				cloudGrid[3] = cloudShadow;
 			}
@@ -6190,7 +6584,7 @@ namespace p3d {
 		particlesFull = particlesHalf = false;
 		for (const std::pair<f32, ParticleSystem*> &e : particleSystems) (ParticleWantsHalf(e.second) ? particlesHalf : particlesFull) = true;
 		{
-			const f32 layers[4] = { particlesFull ? 1.f : 0.f, particlesHalf ? 1.f : 0.f, 0.f, 0.f };
+			const f32 layers[4] = { particlesFull ? 1.f : 0.f, particlesHalf ? 1.f : 0.f, (1.f / 60.f) / std::max(postFrameSeconds, 1.f / 500.f), 0.f };     // (z: as td[54])
 			device->Upload(taaData, slot * 256 + 208, layers, sizeof(layers));
 		}
 		gatherMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - g0).count();
@@ -6200,9 +6594,11 @@ namespace p3d {
 		const gfx::Texture skybox = SkyboxFor(skyboxSource);
 		fd.ambient[3] = skybox ? 1.f : 0.f;
 		meterBackground = skyOn || skybox;     // (a sky behind everything is light, metered; a cleared background is not)
+		meterDepth = meterFrom > view.nearZ && !view.orthographic ? view.nearZ / meterFrom : 0.f;     // (reversed Z, the far plane at infinity: near / distance)
 		if (skybox) fd.frame[2] = 1.f;
 		device->Upload(frameData, frameOffset, &fd, sizeof(fd));
 		const uint32 dynamicOffsets[3] = { frameOffset, slot * kLightDataSlot, slot * kShadowDataSlot };
+		particleLightOffset = slot * kLightDataSlot;
 
 		// The frame, as a graph (FrameGraph.h): each pass what it writes and reads, recorded in this order with the
 		// barriers between made by the graph
@@ -6280,11 +6676,17 @@ namespace p3d {
 			if (!transmittanceMade) w.push_back({ transmittance, Color });
 			graph.AddPass("SkyTables", w, { cloudNoise }, [=](gfx::CommandList* cl) { RecordSkyTables(cl, frameOffset, slot); });
 		}
+		// (which of the two cloud pictures this frame draws and shows - chosen here, as the frame is built, and kept by its
+		// passes. Read when each pass was recorded, with the frame's end moving it on another thread, a frame now and then
+		// showed the last frame's clouds while all else moved: the clouds stopped, then jumped - "the sky shakes", more the
+		// higher the frame rate)
+		const uint32 cloudCur = cloudFrame & 1;
 		if (!skybox && skyLit && cloudCover > 0.f)     // (with a skybox: its own clouds, none of these - nor their shadow)
 		{
-			const uint32 cur = cloudFrame & 1;
+			const uint32 cur = cloudCur;
 			graph.AddPass("Clouds", { { cloudTex[cur], Color } }, { cloudTex[cur ^ 1], skyView, transmittance },
-				[=](gfx::CommandList* cl) { RecordClouds(cl, frameOffset, slot); });
+				[=](gfx::CommandList* cl) { RecordClouds(cl, frameOffset, slot, cur); });
+			cloudHistory = true; cloudFrame++;     // (the next frame blends into this one's)
 			if (cloudShadow > 0.f) graph.AddPass("CloudShadow", { { cloudShadowTex, Color } }, { cloudNoise }, [=](gfx::CommandList* cl) { RecordCloudShadow(cl, frameOffset, slot); });
 		}
 		else cloudShadowOn = false;
@@ -6325,7 +6727,7 @@ namespace p3d {
 			if (anyOnGpu) graph.AddPass("ParticleSim", {}, {}, [=](gfx::CommandList* cl) { RecordParticleSim(cl); });
 		}
 		graph.AddPass("Scene", { { hdr, Color, true }, { depth, Depth, true, false } },
-			{ shadowAtlas, prepassDepth, aoA, skySH, skyView, skyViewClouded, transmittance, cloudShadowTex, hdrPrevious, cloudTex[cloudFrame & 1], skybox, mirrorTex },
+			{ shadowAtlas, prepassDepth, aoA, skySH, skyView, skyViewClouded, transmittance, cloudShadowTex, hdrPrevious, cloudTex[cloudCur], skybox, mirrorTex },
 			[=](gfx::CommandList* cl)
 		{
 				gfx::PassDesc pass;
@@ -6394,8 +6796,8 @@ namespace p3d {
 						if (!batch) { DrawItemGeometry(cl, it, true); return; }
 						cl->SetVertexBuffer(0, it.gpu->vertices, 0);
 						cl->SetVertexBuffer(1, batchRing, batchAt);
-						cl->SetIndexBuffer(it.gpu->indices, 0, true);
-						cl->DrawIndexed(it.gpu->indexCount, count, 0, 0, 0);
+						cl->SetIndexBuffer(it.sided ? it.gpu->sided : it.gpu->indices, 0, true);
+						cl->DrawIndexed(it.sided ? it.gpu->sidedCount : it.gpu->indexCount, count, 0, 0, 0);
 					};
 					for (const std::pair<uint32, uint32> &r : runs)
 					{
@@ -6422,7 +6824,7 @@ namespace p3d {
 				}
 				else if (skyLit && device->PipelineReady(skyPipeline))
 					{
-						gfx::BindGroup &skyGroup = skyGroups[cloudFrame & 1];
+						gfx::BindGroup &skyGroup = skyGroups[cloudCur];
 						if (!skyGroup)
 						{
 							gfx::Device::BindGroupEntry e[5];
@@ -6432,7 +6834,7 @@ namespace p3d {
 							e[3].binding = 3; e[3].sampler = linearClamp;
 							e[4].binding = 4; e[4].buffer = skyData; e[4].size = 192;
 							gfx::Device::BindGroupEntry all[6] = { e[0], e[1], e[2], e[3], e[4], gfx::Device::BindGroupEntry() };
-							all[5].binding = 5; all[5].texture = cloudTex[cloudFrame & 1];
+							all[5].binding = 5; all[5].texture = cloudTex[cloudCur];
 							skyGroup = device->CreateBindGroup(skyPipeline, all, 6);
 						}
 						const uint32 offsets[2] = { frameOffset, slot * 256 };
@@ -6453,7 +6855,7 @@ namespace p3d {
 		// This frame's picture kept for the next one's reflections - as the scene pass left it, before anything is laid
 		// in the air over it: what is in front of a surface for the eye (particles, smoke, fog) is not in front of it for a
 		// mirror, and kept in, a glossy floor showed the smoke and sparks over it a second time
-		if ((ScreenReflections() || RtReflections()) && hdr && hdrPrevious)
+		if ((ScreenReflections() || RtReflections() || keepPicture) && hdr && hdrPrevious)
 		{
 			graph.AddPass("KeepPicture", { { hdrPrevious, gfx::Access::CopyDst } }, {}, [=](gfx::CommandList* cl)
 			{
@@ -6516,8 +6918,14 @@ namespace p3d {
 		if ((shaftsStrength > 0.f && skyOn) || dofBlur > 0.f || motionShutter > 0.f)
 			graph.AddPass("Post", { { postTex, Color } }, { hdr, velocityTex, prepassDepth }, [=](gfx::CommandList* cl) { RecordPost(cl, view, frameOffset); });
 		if (taaOn)
-			graph.AddPass("TemporalAA", { { taaTex[taaFrame & 1], Color } }, { hdr, taaTex[(taaFrame & 1) ^ 1], velocityTex, prepassDepth, particleFullTex, particleTex },     // (hdr read, then the result copied into it: Use())
-				[=](gfx::CommandList* cl) { RecordTemporalAA(cl, frameOffset, slot); });
+		{
+			// (its picture chosen here and kept by the pass, the count moved on here: as the clouds' - not on the render thread,
+			// where a turn of the setting from the game's thread could be lost against it)
+			const uint32 taaCur = taaFrame & 1;
+			graph.AddPass("TemporalAA", { { taaTex[taaCur], Color } }, { hdr, taaTex[taaCur ^ 1], velocityTex, prepassDepth, particleFullTex, particleTex },     // (hdr read, then the result copied into it: Use())
+				[=](gfx::CommandList* cl) { RecordTemporalAA(cl, frameOffset, slot, taaCur); });
+			taaHistory = true; taaFrame++;
+		}
 		else if (fxaaOn && device->PipelineReady(fxaaPipeline))
 			graph.AddPass("FXAA", { { taaTex[0], Color } }, { hdr }, [=](gfx::CommandList* cl) { RecordFXAA(cl, frameOffset); });
 		// (its chain of targets its own: said within it, Use())
@@ -6549,7 +6957,7 @@ namespace p3d {
 			}
 			cl->SetPipeline(pipe);
 			cl->SetBindGroup(groups[cur], &frameOffset, 1);
-			const Grade &g = grade;
+			const Grade &g = rec.grade;
 			// (the screen's lens - RenderGlobals::ScreenLens - on the picture that goes to the screen only, not a view's texture)
 			const bool lensOn = lensOnNow;
 			const Vec4 lens = lensNow, lensLook = lensLookNow;
@@ -6559,8 +6967,8 @@ namespace p3d {
 				g.lift.x, g.lift.y, g.lift.z, g.lift.w, g.gamma.x, g.gamma.y, g.gamma.z, g.gamma.w, g.gain.x, g.gain.y, g.gain.z, g.gain.w,
 				g.shadowTint.x, g.shadowTint.y, g.shadowTint.z, g.shadowTint.w, g.highlightTint.x, g.highlightTint.y, g.highlightTint.z, g.highlightTint.w,
 				g.vignette, g.grain, g.chromatic, g.on ? 1.f : 0.f,
-				0.06f * bloomIntensity, backdropNow.x, backdropNow.y, backdropNow.z,
-				bloomThreshold, bloomKnee, pipe == tonemapToDisplayPipeline ? 1.f : 0.f, 0.f,
+				0.06f * rec.bloomIntensity, backdropNow.x, backdropNow.y, backdropNow.z,
+				rec.bloomThreshold, rec.bloomKnee, pipe == tonemapToDisplayPipeline ? 1.f : 0.f, 0.f,
 				lens.x, lens.y, lensOn ? lens.z : 0.f, std::max(lens.w, 1e-4f),
 				std::min(std::max(lensLook.x, 0.f), 1.f), std::min(std::max(lensLook.y, 0.f), 1.f), 1.f / (f32)(kBloomLevels - kLensBlurLevel), std::max(lensLook.z, 0.f),
 				lensLook.w > 0.f ? std::min(lensLook.w, 1.f) : 1.f, 0.f, 0.f, 0.f };     // (z: into the display texture - sRGB-encoded, for the asset effects)
@@ -6732,7 +7140,6 @@ namespace p3d {
 		FrameProfiler::Instance().Counter("RT.Present", presentMs);
 		FrameProfiler::Instance().Counter("RT.EndFrame", std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - s2).count());
 		frameNumber++;
-		if (cloudHistory) cloudFrame++;
 		cpuMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t1).count() - acquireMs;
 		waitMs += acquireMs;
 	}
